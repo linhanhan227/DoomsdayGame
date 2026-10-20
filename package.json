@@ -1,0 +1,24 @@
+{
+  "name": "zombie-survival-text-game",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI 驱动的末日丧尸生存文字游戏 —— 纯静态网页版（无后端），SQLite(WASM) 存档",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && vite build --mode single",
+    "build:host": "vite build",
+    "build:single": "vite build --mode single",
+    "preview": "vite preview",
+    "serve": "vite preview --host --port 4173"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sql.js": "^1.14.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

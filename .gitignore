@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-standalone/
+.preview/
+.workbuddy-ai/
+vite.config.js.timestamp-*
+*.log
+.DS_Store

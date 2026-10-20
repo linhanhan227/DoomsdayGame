@@ -26,7 +26,7 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
       model: settings?.model || FALLBACK_MODEL,
       apiKey: '',
       temperature: settings?.temperature ?? 1.05,
-      corsProxy: settings?.corsProxy || 'builtin',
+      corsProxy: settings?.corsProxy === 'corsio' || settings?.corsProxy === 'custom' ? settings.corsProxy : 'off',
       corsProxyCustom: settings?.corsProxyCustom || '',
     }
   })
@@ -144,7 +144,7 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
           游戏的事件、结局全部由大模型现场生成。本作是<b>纯静态网页版</b>：没有后端，浏览器直连模型服务商，
           配置与存档都保存在本地 <b>SQLite</b> 数据库中（持久化于浏览器 IndexedDB）。
           <br />
-          注意：浏览器直连要求服务商允许 CORS。本版默认把请求交给 <b>https://proxy.killcors.com?url=</b> 转发。
+          注意：浏览器直连要求服务商允许 CORS。本版默认<b>关闭</b>跨域中转，请求直接发给服务商。
         </p>
 
         <div className="field">
@@ -255,13 +255,12 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
           <div className="field">
             <label>跨域中转（CORS）</label>
             <select value={draft.corsProxy} onChange={(e) => set('corsProxy', e.target.value)}>
-              <option value="builtin">KillCORS · https://proxy.killcors.com?url=（默认开启）</option>
-              <option value="off">关闭 · 直连服务商</option>
+              <option value="off">关闭 · 直连服务商（默认）</option>
+              <option value="corsio">cors.io · https://cors.io/?url=</option>
               <option value="custom">自定义中转前缀</option>
             </select>
             <div className="sub">
-              默认经 https://proxy.killcors.com?url= 转发，并补上 CORS 响应头。静态页面也可直接使用。
-              服务商本身支持直连时，改为「关闭」。
+              默认浏览器直连服务商，不经过公共代理。服务商未返回 CORS 头时，再改为 cors.io 或填写自己的网关。
             </div>
             {draft.corsProxy && draft.corsProxy !== 'off' && (
               <div className="banner warn" style={{ marginTop: 8 }}>
@@ -274,7 +273,7 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
                 style={{ marginTop: 8 }}
                 value={draft.corsProxyCustom}
                 onChange={(e) => set('corsProxyCustom', e.target.value)}
-                placeholder="https://proxy.killcors.com?url="
+                placeholder="https://cors.io/?url="
               />
             )}
           </div>

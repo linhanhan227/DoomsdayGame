@@ -12,21 +12,22 @@
  *
  * 跨域中转（默认启用）：
  *   某些服务商不返回 CORS 响应头，浏览器无法直连。
- *   内置通道走 https://proxy.killcors.com?url=<上游地址>，由该代理转发并补上 CORS 头。
+ *   内置通道走 https://cors.io/?url=<上游地址>。
+ *   cors.io 会把上游响应包成 { status, headers, body }，客户端再拆出 body。
  */
 import { getConfig } from '../db/store.js'
 
 /** 内置 CORS 代理。查询参数名固定为 url= */
-export const LOCAL_CORS_API = 'https://proxy.killcors.com?url='
+export const LOCAL_CORS_API = 'https://cors.io/?url='
 
-/** 把上游地址包进代理：https://proxy.killcors.com?url=<编码后的目标> */
+/** 把上游地址包进代理：https://cors.io/?url=<编码后的目标> */
 export function localCorsUrl(target, base = LOCAL_CORS_API) {
   const b = String(base || LOCAL_CORS_API).trim()
   const prefix = /[?&]url=$/.test(b) ? b : `${b.replace(/\/+$/, '')}${b.includes('?') ? '&' : '?'}url=`
   return `${prefix}${encodeURIComponent(target)}`
 }
 
-/** @deprecated 旧名保留。现在指向 https://proxy.killcors.com?url= */
+/** @deprecated 旧名保留。现在指向 https://cors.io/?url= */
 export function corsfixUrl(target) {
   return localCorsUrl(target)
 }
@@ -35,17 +36,18 @@ export function alloriginsUrl(target) {
   return localCorsUrl(target)
 }
 
-/** 按配置决定请求最终打到哪。builtin 走 killcors，不改写方法与请求体 */
+/** 按配置决定请求最终打到哪。默认直连；corsio 才包进 cors.io。旧值 builtin 按直连处理 */
 export function wrapWithCorsProxy(url, cfg = getConfig()) {
   const mode = String(cfg.corsProxy || '').trim()
-  if (!mode || mode === 'off') return url
+  if (!mode || mode === 'off' || mode === 'builtin') return url
   if (mode === 'custom') {
     const prefix = String(cfg.corsProxyCustom || '').trim()
     if (!prefix) return url
     if (/[?&]url=$/.test(prefix) || /\/api\/cors/i.test(prefix)) return localCorsUrl(url, prefix)
     return `${prefix}${url}`
   }
-  return localCorsUrl(url)
+  if (mode === 'corsio') return localCorsUrl(url)
+  return url
 }
 
 export class LLMError extends Error {
@@ -128,10 +130,10 @@ async function rawChat({ config, system, user, temperature, jsonMode }) {
     throw new LLMError(
       `无法连接模型服务：${err.message}\n` +
         (viaProxy
-          ? `当前请求经 CORS 代理（https://proxy.killcors.com?url=）转发。常见原因：① 代理或上游不可达；② 网络拦截了该域名。\n` +
+          ? `当前请求经 CORS 代理（https://cors.io/?url=）转发。常见原因：① 代理或上游不可达；② 网络拦截了该域名。\n` +
             `建议：若服务商本身支持直连，把跨域中转改为「关闭」。`
           : `常见原因：① 该服务商未返回 CORS 响应头，浏览器不允许跨域直连；② 地址不可达。\n` +
-            `若是 CORS：在设置里把跨域中转改为「KillCORS 代理」，或改用支持跨域直连的服务商。`),
+            `若是 CORS：在设置里把跨域中转改为「cors.io」，或改用支持跨域直连的服务商。`),
       { cause: err },
     )
   }
@@ -141,6 +143,17 @@ async function rawChat({ config, system, user, temperature, jsonMode }) {
     text = await res.text()
   } finally {
     clearTimeout(timer)
+  }
+  if (viaProxy) {
+    try {
+      const wrapped = JSON.parse(text)
+      if (wrapped && typeof wrapped.body === 'string' && Number.isInteger(wrapped.status)) {
+        text = wrapped.body
+        res = new Response(text, { status: wrapped.status, headers: { 'content-type': 'application/json' } })
+      }
+    } catch {
+      /* 不是 cors.io 包装，按原文继续 */
+    }
   }
   if (!res.ok) {
     let parsed = null

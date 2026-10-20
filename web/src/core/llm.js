@@ -12,22 +12,21 @@
  *
  * 跨域中转（默认启用）：
  *   某些服务商不返回 CORS 响应头，浏览器无法直连。
- *   内置通道走本页的 JS API：POST /api/cors?url=<上游地址>，由本地接口代为转发并补上 CORS 头。
- *   Key 只经过你自己打开的这个页面，不经过公共中转。
+ *   内置通道走 https://proxy.killcors.com?url=<上游地址>，由该代理转发并补上 CORS 头。
  */
 import { getConfig } from '../db/store.js'
 
-/** 本地 JS CORS 代理。查询参数名固定为 url=，与 allorigins 的 get?url= 同一写法 */
-export const LOCAL_CORS_API = '/api/cors?url='
+/** 内置 CORS 代理。查询参数名固定为 url= */
+export const LOCAL_CORS_API = 'https://proxy.killcors.com?url='
 
-/** 把上游地址包进本地代理：/api/cors?url=<编码后的目标> */
+/** 把上游地址包进代理：https://proxy.killcors.com?url=<编码后的目标> */
 export function localCorsUrl(target, base = LOCAL_CORS_API) {
   const b = String(base || LOCAL_CORS_API).trim()
   const prefix = /[?&]url=$/.test(b) ? b : `${b.replace(/\/+$/, '')}${b.includes('?') ? '&' : '?'}url=`
   return `${prefix}${encodeURIComponent(target)}`
 }
 
-/** @deprecated 旧名保留。现在指向本地 /api/cors?url= */
+/** @deprecated 旧名保留。现在指向 https://proxy.killcors.com?url= */
 export function corsfixUrl(target) {
   return localCorsUrl(target)
 }
@@ -36,7 +35,7 @@ export function alloriginsUrl(target) {
   return localCorsUrl(target)
 }
 
-/** 按配置决定请求最终打到哪。builtin 走本地 JS API，不改写方法与请求体 */
+/** 按配置决定请求最终打到哪。builtin 走 killcors，不改写方法与请求体 */
 export function wrapWithCorsProxy(url, cfg = getConfig()) {
   const mode = String(cfg.corsProxy || '').trim()
   if (!mode || mode === 'off') return url
@@ -129,10 +128,10 @@ async function rawChat({ config, system, user, temperature, jsonMode }) {
     throw new LLMError(
       `无法连接模型服务：${err.message}\n` +
         (viaProxy
-          ? `当前请求经本地 CORS 接口（/api/cors?url=）转发。常见原因：① 开发服务没开，静态托管没有这个接口；② 上游地址不可达。\n` +
-            `建议：用 npm run dev 或 npm run preview 打开；若服务商本身支持直连，把跨域中转改为「关闭」。`
+          ? `当前请求经 CORS 代理（https://proxy.killcors.com?url=）转发。常见原因：① 代理或上游不可达；② 网络拦截了该域名。\n` +
+            `建议：若服务商本身支持直连，把跨域中转改为「关闭」。`
           : `常见原因：① 该服务商未返回 CORS 响应头，浏览器不允许跨域直连；② 地址不可达。\n` +
-            `若是 CORS：在设置里把跨域中转改为「本地接口」，或改用支持跨域直连的服务商。`),
+            `若是 CORS：在设置里把跨域中转改为「KillCORS 代理」，或改用支持跨域直连的服务商。`),
       { cause: err },
     )
   }

@@ -8,7 +8,7 @@ AI 驱动的末日丧尸生存文字游戏。纯静态网页，没有后端。�
 | 形态 | 单人 · 回合制 · 纯文字 · 浏览器 |
 | 运行时 | Node.js 18+（仅用于安装与构建；玩的时候只需要浏览器） |
 | 存储 | 浏览器内 SQLite（sql.js / WASM），文件落在 IndexedDB |
-| 模型 | 浏览器直连任意 OpenAI 兼容接口；开发/预览时可由本机 `/api/cors?url=` 转发 |
+| 模型 | 浏览器直连任意 OpenAI 兼容接口；默认经 `https://proxy.killcors.com?url=` 转发 |
 
 ---
 
@@ -26,8 +26,8 @@ AI 驱动的末日丧尸生存文字游戏。纯静态网页，没有后端。�
 ### 这一版
 
 - **选项必须能在剧情里对上。** 每个选项带一句「依据」，写在按钮下方。选项里点到的物件、人名、地点，必须已经出现在本回合正文、背包、地点或任务线索里。模型没写进去时，引擎用它自己给出的依据补进这一段叙事，再让你选择。背包和主线里本来就有的，不会再重复补一句。
-- **跨域走本机接口。** 默认请求发到 `/api/cors?url=<上游地址>`，由 Vite 开发服务或预览服务转发，并补上 CORS 头。Key 只经过本机。这个接口不在双击打开的单文件里，也不在纯静态托管上。
-- **不再使用公共中转。** 旧的 corsfix 通道已去掉。静态托管请在设置里把跨域中转改为「关闭」，或填你自己的网关前缀。
+- **跨域走 KillCORS。** 默认请求发到 `https://proxy.killcors.com?url=<上游地址>`，由该代理转发并补上 CORS 头。静态页面和双击打开的单文件都可以用。
+- **可改回直连。** 服务商本身允许 CORS 时，在设置里把跨域中转改为「关闭」，或填你自己的网关前缀。
 
 ---
 
@@ -151,15 +151,13 @@ npm run build
 
 | 选项 | 行为 |
 | --- | --- |
-| 本地接口 · /api/cors?url=（默认） | 浏览器 POST 到本页 `/api/cors?url=<编码后的上游 URL>`。页面文件仍是静态的，这条路径由同机进程反代并补上 CORS 头。Key 只经过本机 |
+| KillCORS · https://proxy.killcors.com?url=（默认） | 浏览器 POST 到 `https://proxy.killcors.com?url=<编码后的上游 URL>`。由该代理转发并补上 CORS 头。静态页面可用 |
 | 关闭 | 浏览器直连上游。上游必须允许 CORS |
 | 自定义中转前缀 | 填你自己的网关前缀。以 `?url=` 结尾时按同样方式编码上游地址 |
 
-`npm run dev`、`npm run preview`、`npm run serve` 都带这条反代。`serve` 先要 `npm run build`，然后从 `dist/` 发静态文件，只把 `/api/cors` 转发走。目录可用 `STATIC_ROOT` 改，端口用 `PORT`，监听地址用 `HOST`。
+默认不依赖本机反代。`vite.config.js` 的 `localCorsApi()` 和 `scripts/cors-proxy.mjs` 仍保留 `/api/cors?url=`，需要时可在「自定义中转前缀」里填上。
 
-双击 `dist-standalone/index.html`，或把 `dist/` 丢到没有这条路径的纯静态托管上，反代不存在。那种打开方式改为「关闭」，或自备同样形式的网关。
-
-拼接逻辑在 `web/src/core/llm.js` 的 `localCorsUrl()` / `wrapWithCorsProxy()`。开发与预览的转发在 `vite.config.js` 的 `localCorsApi()`，静态托管的转发在 `scripts/cors-proxy.mjs`。
+拼接逻辑在 `web/src/core/llm.js` 的 `localCorsUrl()` / `wrapWithCorsProxy()`。
 
 温度可在设置里调。事件分歧不够时，试 1.05–1.15。每回合另有一枚命运种子，温度越高，同一局面分叉越大。
 
@@ -186,7 +184,7 @@ npm run build
 - 没有服务端。存档、Key、配置都在这台浏览器的 IndexedDB 里，清站点数据等于删档。导出文件是唯一备份。
 - 没有 Key、连通性测试没过，不能开局。`mock` 通道不能用来正式开局，只服务于 `scripts/selftest.mjs`。
 - 模型必须返回约定 JSON。解析失败时本回合不会推进；检查 Base URL、模型名和余额。
-- 静态文件自己不能发跨域请求。`/api/cors` 是同机反代，随 `npm run dev`、`preview`、`serve` 一起出现。双击单文件、或没有这条路径的托管，把跨域中转改为「关闭」，或填自己的网关。Key 不会再发给公共中转。
+- 静态文件自己不能发跨域请求。默认经 `https://proxy.killcors.com?url=` 转发，请求（含 API Key）会经过该代理。上游允许 CORS 时改为「关闭」直连。
 - 单文件版约 1 MB 出头，不适合当作「轻量页面」优化目标；换来的是双击可玩、对 CDN 的 MIME 和 wasm 扩展名没有要求。
 - 自检脚本会拉起外部 Chrome 调试端口，并访问本机预览地址。它不是玩家流程的一部分。
 
@@ -210,7 +208,7 @@ node scripts/selftest.mjs
 ## 常见问题
 
 **打不开模型，或控制台出现 CORS。**  
-开发或预览时保持「本地接口 · /api/cors?url=」，并用 `npm run dev` / `npm run preview` 打开页面。双击单文件或放到纯静态托管上时，这个接口不存在，改为「关闭」直连（上游必须允许 CORS），或在「自定义中转前缀」填你自己的网关。Ollama 需要 `OLLAMA_ORIGINS=*`。
+保持「KillCORS · https://proxy.killcors.com?url=」。代理不可达时改为「关闭」直连（上游必须允许 CORS），或在「自定义中转前缀」填你自己的网关。Ollama 需要 `OLLAMA_ORIGINS=*`。
 
 **选项里出现正文没写过的东西。**  
 看按钮下的「依据」，并回头看这一段末尾。引擎会把对不上的物件用依据补进叙事。若依据本身也对不上背包、地点和任务线索，那一句会出现在正文末尾。刷新旧存档不会改写已经生成过的段落。

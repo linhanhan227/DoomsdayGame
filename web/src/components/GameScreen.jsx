@@ -1048,7 +1048,10 @@ export default function GameScreen({
                       disabled={busy}
                     >
                       <span className="choice-key">{c.consume ? '⚠' : c.id}</span>
-                      <span>{c.text}</span>
+                      <span className="choice-body">
+                        <span className="choice-text">{c.text}</span>
+                        {c.basis ? <span className="choice-basis">依据：{c.basis}</span> : null}
+                      </span>
                     </button>
                   ))}
                   <div className="aux-actions">

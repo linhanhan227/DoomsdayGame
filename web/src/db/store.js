@@ -22,8 +22,8 @@ const DEFAULTS = {
   temperature: 1.05,
   maxTokens: 2400,
   timeoutMs: 90000,
-  // 跨域中转：'builtin' 启用公共中转（corsfix，默认） | 'off' 直连 | 'custom' 自定义前缀
-  // ⚠ 启用后请求（含 Authorization 头 / API Key）会经过第三方服务器，存在泄露风险。
+  // 跨域中转：'builtin' 走本页 /api/cors?url=（默认） | 'off' 直连 | 'custom' 自定义前缀
+  // builtin 只在 npm run dev / preview 下存在；Key 经过本机接口，不经过公共中转。
   corsProxy: 'builtin',
   corsProxyCustom: '', // corsProxy === 'custom' 时使用的自定义中转前缀
 }

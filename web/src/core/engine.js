@@ -815,8 +815,129 @@ function normalizeChoices(rawChoices, state) {
     const choice = { id: CHOICE_IDS[i], text: polishChoiceText(c.text).slice(0, 60) }
     const tag = normQuestTag(state, c.quest)
     if (tag) choice.quest = tag
+    const basis = String(c.basis || c.hint || c.why || '').replace(/\s+/g, ' ').trim().slice(0, 48)
+    if (basis) choice.basis = basis
     return choice
   })
+}
+
+/**
+ * 选项依据必须能在刚读到的正文或快照里对上号。
+ * 模型仍会把正文没写过的物件（「水泥板」一类）直接写成选项——
+ * 这里把对不上的名词补进本回合叙事，让玩家先看见，再做选择。
+ */
+const CHOICE_STOPWORDS = new Set([
+  '继续', '离开', '回去', '过去', '过来', '起来', '下去', '出来', '进去', '上去', '下来',
+  '看看', '找找', '听听', '问问', '等等', '先', '再', '把', '被', '给', '从', '向', '往',
+  '这个', '那个', '这里', '那里', '什么', '怎么', '一下', '一点', '一些', '自己', '别人',
+  '一起', '不要', '不能', '没有', '已经', '还是', '或者', '然后', '因为', '所以', '如果',
+  '现在', '刚才', '之后', '之前', '周围', '附近', '里面', '外面', '上面', '下面', '前面', '后面',
+  '主线', '支线', '线索', '目标', '方向', '动作', '选择', '情况', '事情', '东西', '地方',
+])
+
+function knownWorldText(state) {
+  const parts = [
+    state?.memory,
+    state?.location,
+    state?.protagonist?.name,
+    state?.protagonist?.goal,
+    state?.mainQuest?.title,
+    state?.mainQuest?.stage,
+    state?.mainQuest?.note,
+  ]
+  for (const a of state?.allies || []) parts.push(a?.name, a?.status, a?.note)
+  for (const i of state?.inventory || []) parts.push(i?.name, i?.note)
+  for (const q of state?.sideQuests || []) parts.push(q?.title, q?.note, q?.hook)
+  for (const f of state?.flags || []) parts.push(f)
+  for (const c of state?.conditions || []) parts.push(c)
+  for (const s of state?.shelters || []) parts.push(s?.name, s?.note)
+  for (const t of (state?.timeline || []).slice(-4)) parts.push(typeof t === 'string' ? t : t?.text)
+  return parts.filter(Boolean).join('\n')
+}
+
+/** 从选项文案里抽出被指称的物件 / 人名 / 地点，而不是整句动作 */
+function choiceNouns(text) {
+  const src = String(text || '')
+  const nouns = []
+  const push = (w) => {
+    const word = String(w || '').replace(/[的了着过]$/, '')
+    if (word.length < 2 || word.length > 6) return
+    if (CHOICE_STOPWORDS.has(word)) return
+    if (!nouns.includes(word)) nouns.push(word)
+  }
+  // 「那块水泥板」「这个护士」「墙上的灭火器」「路边那辆面包车」
+  const marked = src.matchAll(/(?:那|这)(?:块|扇|辆|个|名|条|处|间|张|把|瓶|盒|扇|道|家)?([\u4e00-\u9fff]{2,6})/g)
+  for (const m of marked) push(m[1])
+  const possessed = src.matchAll(/(?:墙上|地上|包里|手里|路边|门口|窗边|桌上|抽屉里)的([\u4e00-\u9fff]{2,6})/g)
+  for (const m of possessed) push(m[1])
+  if (!nouns.length) {
+    // 没有指称时，取引号或书名号里的专名
+    const quoted = src.matchAll(/[「『"“]([\u4e00-\u9fff]{2,8})[」』"”]/g)
+    for (const m of quoted) push(m[1])
+  }
+  return nouns.slice(0, 3)
+}
+
+function nounKnown(noun, narration, known) {
+  if (!noun) return true
+  if (narration.includes(noun) || known.includes(noun)) return true
+  return false
+}
+
+/** 两段文字是否共用一个实词（背包、主线、正文里已经有的，不算凭空出现） */
+function sharesWords(src, hay) {
+  const s = String(src || '')
+  const h = String(hay || '')
+  if (!s || !h) return false
+  for (let n = Math.min(6, s.length); n >= 2; n--) {
+    for (let i = 0; i <= s.length - n; i++) {
+      const w = s.slice(i, i + n)
+      if (!/^[\u4e00-\u9fff]+$/.test(w)) continue
+      if (CHOICE_STOPWORDS.has(w)) continue
+      if (h.includes(w)) return true
+    }
+  }
+  return false
+}
+
+/**
+ * 选项点到的物件如果正文和快照都没出现，把这一处补进本回合叙事。
+ * 背包、主线、上一幕里已经有的不重复补。补不进新事实，只用模型自己写过的依据。
+ */
+function groundChoices(narration, choices, state) {
+  const text = String(narration || '').trim()
+  const list = Array.isArray(choices) ? choices : []
+  if (!text || !list.length) return { text, choices: list }
+  const known = knownWorldText(state)
+  let corpus = `${text}\n${known}`
+  const lines = []
+  for (const c of list) {
+    if (c?.consume) continue
+    const basis = String(c.basis || '').trim()
+    const basisBare = basis.replace(/[。！？…]+$/, '')
+    // 依据原句已经写在这一段里，玩家看得到，不用再补
+    if (basisBare && text.includes(basisBare)) continue
+    const unknowns = choiceNouns(c?.text).filter((n) => !nounKnown(n, corpus, known))
+    if (!unknowns.length) {
+      // 没点出新物件：依据能对上正文、背包或任务线索，就让它留在原处
+      if (!basisBare || sharesWords(basisBare, text) || sharesWords(basisBare, known)) continue
+    }
+    const lead = unknowns[0] || ''
+    let line = ''
+    if (lead && basisBare.includes(lead)) line = basisBare
+    else if (lead && basisBare) line = `${basisBare}，因此你注意到了${lead}`
+    else if (lead) line = `你这才看见${lead}`
+    else line = basisBare
+    line = String(line).replace(/[。！？…]+$/, '')
+    if (!line || corpus.includes(line)) continue
+    lines.push(`${line}。`)
+    if (!basis && lead) c.basis = `你看见了${lead}`.slice(0, 48)
+    corpus += `\n${line}`
+  }
+  if (!lines.length) return { text, choices: list }
+  const block = lines.slice(0, 3).join('\n')
+  const joined = /[。！？…]$/.test(text) ? `${text}\n${block}` : `${text}。\n${block}`
+  return { text: joined, choices: list }
 }
 
 /**
@@ -900,7 +1021,9 @@ function applyOpening(state, raw) {
   // 开局的安全判定同样由模型给出（开局常常正是"事情正在变坏"的当口）
   applyScavengeSafety(state, raw)
 
-  state.lastEvent = { text: String(raw.narration || '').trim(), choices: normalizeChoices(raw.choices, state) }
+  const openingChoices = normalizeChoices(raw.choices, state)
+  const openingGrounded = groundChoices(String(raw.narration || '').trim(), openingChoices, state)
+  state.lastEvent = { text: openingGrounded.text, choices: openingGrounded.choices }
   state.turn = 0
   state.over = false
   state.ending = null
@@ -1020,10 +1143,13 @@ export async function sleep(id, placeName) {
 
   let text = String(raw.narration || '').trim()
   if (!text) text = '你合上眼。黑暗里只剩自己的呼吸，再睁眼时天已经亮了。'
+  const sleepChoices = normalizeChoices(raw.choices, state)
+  const sleepGrounded = groundChoices(text, sleepChoices, state)
+  text = sleepGrounded.text
 
   state.lastEvent = {
     text,
-    choices: normalizeChoices(raw.choices, state),
+    choices: sleepGrounded.choices,
   }
   state.log.push({
     turn: state.turn,
@@ -1123,10 +1249,13 @@ function applyEvent(state, raw, choiceText) {
   // 消耗诉求 → 由玩家点选的选项（放在最前，凸显"这是玩家要做的决定"）
   const consume = raw.isEnding ? null : buildConsumeChoice(state, raw.consumeRequest)
   const baseChoices = raw.isEnding ? [] : normalizeChoices(raw.choices, state)
-  const choices = consume ? [consume.choice, ...baseChoices].slice(0, 5) : baseChoices
+  const grounded = raw.isEnding
+    ? { text: String(raw.narration || '').trim(), choices: [] }
+    : groundChoices(String(raw.narration || '').trim(), baseChoices, state)
+  const choices = consume ? [consume.choice, ...grounded.choices].slice(0, 5) : grounded.choices
 
   state.lastEvent = {
-    text: String(raw.narration || '').trim(),
+    text: grounded.text,
     choices,
   }
   applyMemoryAndTimeline(state, raw)
@@ -1540,9 +1669,13 @@ export async function scavenge(id) {
   // 撞上插曲时，把插曲正文并入搜刮叙事（插曲是"翻找途中撞上的"，属于同一次行动）
   if (hasSpecial && special.text) text += `\n\n${special.text}`
 
+  const scavengeChoices = normalizeChoices(raw.choices, state)
+  const scavengeGrounded = groundChoices(text, scavengeChoices, state)
+  text = scavengeGrounded.text
+
   state.lastEvent = {
     text,
-    choices: normalizeChoices(raw.choices, state),
+    choices: scavengeGrounded.choices,
   }
   state.log.push({
     turn: state.turn,
@@ -1643,9 +1776,11 @@ export async function useItem(id, itemName, target) {
   const nextChoices = raw.isEnding ? [] : freshChoices.length ? freshChoices : previousChoices
 
   const actionLabel = `（使用 ${item.name} → ${who}）`
+  const useText = String(raw.narrative || '').trim() || `你用掉了${item.name}。`
+  const useGrounded = groundChoices(useText, nextChoices, state)
   state.lastEvent = {
-    text: String(raw.narrative || '').trim() || `你用掉了${item.name}。`,
-    choices: nextChoices,
+    text: useGrounded.text,
+    choices: useGrounded.choices,
   }
   state.log.push({
     turn: state.turn,
@@ -1720,9 +1855,11 @@ export async function giveItem(id, itemName, targetName) {
   const nextChoices = raw.isEnding ? [] : freshChoices.length ? freshChoices : previousChoices
 
   const actionLabel = `（把 ${item.name} 交给 ${who}）`
+  const giveText = String(raw.narrative || '').trim() || `你把${item.name}交了出去。`
+  const giveGrounded = groundChoices(giveText, nextChoices, state)
   state.lastEvent = {
-    text: String(raw.narrative || '').trim() || `你把${item.name}交了出去。`,
-    choices: nextChoices,
+    text: giveGrounded.text,
+    choices: giveGrounded.choices,
   }
   state.log.push({
     turn: state.turn,

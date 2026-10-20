@@ -11,76 +11,42 @@
  * 本地 Ollama 需设置 OLLAMA_ORIGINS。
  *
  * 跨域中转（默认启用）：
- *   某些服务商不返回 CORS 响应头，浏览器无法直连，此时经公共中转服务代取上游。
- *   ⚠ 代价：请求（含 Authorization / API Key）会经过第三方服务器，存在 Key 泄露风险。
+ *   某些服务商不返回 CORS 响应头，浏览器无法直连。
+ *   内置通道走本页的 JS API：POST /api/cors?url=<上游地址>，由本地接口代为转发并补上 CORS 头。
+ *   Key 只经过你自己打开的这个页面，不经过公共中转。
  */
 import { getConfig } from '../db/store.js'
 
-/**
- * 公共中转服务（唯一内置）：corsfix
- * ------------------------------------------------------------------
- * ⚠ 采用官方 SDK 的 URL 形式：`?sdk=1&url=<编码后的目标地址>`（免注册免费额度）。
- *
- *   裸形式 `?<目标地址>`（不编码、不带 sdk=1）走「已注册域名」通道：
- *   仅当部署在 corsfix 后台登记过的域名下才被接受，否则返回 403：
- *     { "corsfix_error": "domain_not_registered",
- *       "message": "This website domain hasn't been registered to use the proxy" }
- *   SDK 形式无此限制，故作为默认（免费额度：每 IP 60 次/分，每域名 10MB/月）。
- *
- *   ⚠ corsfix 要求请求携带合法 Origin 头（必须由浏览器 fetch 发起）；
- *     服务端 / curl 直连会返回 `invalid_origin`，属正常现象。
- *
- *   ⚠ 两种形式的编码要求**相反**：裸形式原样拼接；SDK 形式必须 encodeURIComponent
- *     （见 corsfix SDK 源码的 proxiedUrlFor）。
- */
-const CORS_PROXY_BASE = 'https://proxy.corsfix.com'
+/** 本地 JS CORS 代理。查询参数名固定为 url=，与 allorigins 的 get?url= 同一写法 */
+export const LOCAL_CORS_API = '/api/cors?url='
 
-/** 按官方 SDK 的形式拼接代理地址 */
-export function corsfixUrl(target, base = CORS_PROXY_BASE) {
-  const b = String(base || CORS_PROXY_BASE).replace(/\/+$/, '')
-  return `${b}/?sdk=1&url=${encodeURIComponent(target)}`
+/** 把上游地址包进本地代理：/api/cors?url=<编码后的目标> */
+export function localCorsUrl(target, base = LOCAL_CORS_API) {
+  const b = String(base || LOCAL_CORS_API).trim()
+  const prefix = /[?&]url=$/.test(b) ? b : `${b.replace(/\/+$/, '')}${b.includes('?') ? '&' : '?'}url=`
+  return `${prefix}${encodeURIComponent(target)}`
 }
 
-/** 按配置把上游 URL 包装成经中转的 URL；未启用时原样返回 */
+/** @deprecated 旧名保留。现在指向本地 /api/cors?url= */
+export function corsfixUrl(target) {
+  return localCorsUrl(target)
+}
+
+export function alloriginsUrl(target) {
+  return localCorsUrl(target)
+}
+
+/** 按配置决定请求最终打到哪。builtin 走本地 JS API，不改写方法与请求体 */
 export function wrapWithCorsProxy(url, cfg = getConfig()) {
   const mode = String(cfg.corsProxy || '').trim()
   if (!mode || mode === 'off') return url
   if (mode === 'custom') {
     const prefix = String(cfg.corsProxyCustom || '').trim()
-    if (!prefix) return url // 自定义中转未填地址 → 退回直连
-    // 用户直接粘了 corsfix 地址时，同样改走 SDK 形式，否则会撞上域名未注册
-    if (/corsfix\.com/i.test(prefix)) return corsfixUrl(url, prefix)
-    // 其余自建网关：按原样拼接（不做 URL 编码）
+    if (!prefix) return url
+    if (/[?&]url=$/.test(prefix) || /\/api\/cors/i.test(prefix)) return localCorsUrl(url, prefix)
     return `${prefix}${url}`
   }
-  return corsfixUrl(url)
-}
-
-/**
- * 识别「中转自身」的报错（corsfix 会返回 corsfix_error 字段）。
- * 这类失败与 API Key / 模型无关，必须单独提示，否则会把用户引到错误的方向。
- */
-const CORSFIX_ERROR_TEXT = {
-  domain_not_registered: '公共中转（corsfix）未注册当前站点域名',
-  no_active_plan: '公共中转（corsfix）未启用免费额度',
-  free_tier_transfer_limit: '公共中转（corsfix）免费流量已用尽（免费额度 10MB/月/域名）',
-  free_tier_concurrency_limit: '公共中转（corsfix）免费并发已用尽（免费额度同时 1 个用户）',
-  invalid_url: '公共中转（corsfix）无法解析目标地址',
-  forbidden_target: '公共中转（corsfix）不允许访问该目标地址',
-  blocked_target: '公共中转（corsfix）已屏蔽该目标地址',
-  payload_too_large: '请求体超过公共中转上限（5MB）',
-}
-
-function corsfixErrorText(parsed) {
-  const code = String(parsed?.corsfix_error || '').trim()
-  if (!code) return null
-  const label = CORSFIX_ERROR_TEXT[code] || `公共中转（corsfix）返回错误 ${code}`
-  const fix = parsed?.if_you_are_admin ? `\n处理办法：${parsed.if_you_are_admin}` : ''
-  return (
-    `${label}${fix}\n` +
-    '若不便处理，可在「AI 通道设置」里把「跨域中转」改为「关闭」直连服务商（需该服务商支持浏览器跨域），' +
-    '或填写自己的中转前缀。'
-  )
+  return localCorsUrl(url)
 }
 
 export class LLMError extends Error {
@@ -163,10 +129,10 @@ async function rawChat({ config, system, user, temperature, jsonMode }) {
     throw new LLMError(
       `无法连接模型服务：${err.message}\n` +
         (viaProxy
-          ? `当前请求经公共中转（corsfix）转发，常见原因：① 中转服务不可达或限流；② 上游地址不可达。\n` +
-            `建议：若你的服务商支持直连（DeepSeek / OpenAI 等），在设置里把跨域中转改为「关闭」重试。`
+          ? `当前请求经本地 CORS 接口（/api/cors?url=）转发。常见原因：① 开发服务没开，静态托管没有这个接口；② 上游地址不可达。\n` +
+            `建议：用 npm run dev 或 npm run preview 打开；若服务商本身支持直连，把跨域中转改为「关闭」。`
           : `常见原因：① 该服务商未返回 CORS 响应头，浏览器不允许跨域直连；② 地址不可达。\n` +
-            `若是 CORS：在设置里把跨域中转改为「公共中转（corsfix）」，或改用支持跨域直连的服务商。`),
+            `若是 CORS：在设置里把跨域中转改为「本地接口」，或改用支持跨域直连的服务商。`),
       { cause: err },
     )
   }
@@ -184,10 +150,6 @@ async function rawChat({ config, system, user, temperature, jsonMode }) {
     } catch {
       /* 保留原文 */
     }
-    // 中转自身的故障（域名未注册、额度用尽…）与 Key / 模型无关，先单独提示
-    const proxyErr = corsfixErrorText(parsed)
-    if (proxyErr) throw new LLMError(proxyErr, { status: res.status })
-
     const detail = parsed?.error?.message || parsed?.message || text
     const hint =
       res.status === 401 || res.status === 403

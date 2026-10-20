@@ -10,7 +10,7 @@
     "build:host": "vite build",
     "build:single": "vite build --mode single",
     "preview": "vite preview",
-    "serve": "vite preview --host --port 4173"
+    "serve": "node scripts/cors-proxy.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

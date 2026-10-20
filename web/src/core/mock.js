@@ -13,10 +13,10 @@
 let turnCount = 0
 
 const NARRATIONS = [
-  '急诊大厅的广播还在循环播放"请患者有序就诊"，但已经没有人再排队了。三分钟前，那个被抬进来的男人突然从担架床上坐起，咬住了离他最近的护士。你站在走廊尽头，手里还攥着刚打印出来的化验单——病因一栏写着"待查"。尖叫声从四面八方涌来，而你身后，是唯一一扇还亮着绿灯的安全通道门。',
-  '你在居民楼七层的阳台上屏住呼吸。楼下的尸群像退潮一样缓慢向东移动，领头的那具穿着环卫工制服，胸口别着一张已经模糊的工牌。对面楼顶，有人用镜子朝你闪了三下——那是幸存者之间的老信号。',
-  '发动机在高架匝道上彻底熄火。仪表盘黑下去的一瞬间，你听见了远处传来的钟声。不对，这个区域已经断电很久了。那钟声来自哪里？',
-  '你拆开绷带，伤口边缘已经泛起不正常的青灰色。军用手册上写过这种情况——尸化的早期征兆。你还有大概十二个小时，去找那家据说还囤着抗生素的社区医院。',
+  `急诊大厅的广播还在循环播放「请患者有序就诊」，但已经没有人再排队了。三分钟前，那个被抬进来的男人突然从担架床上坐起，咬住了离他最近的护士。你站在走廊尽头，手里还攥着刚打印出来的化验单——病因一栏写着「待查」。尖叫声从四面八方涌来，而你身后，是唯一一扇还亮着绿灯的安全通道门。`,
+  `你在居民楼七层的阳台上屏住呼吸。楼下的尸群像退潮一样缓慢向东移动，领头的那具穿着环卫工制服，胸口别着一张已经模糊的工牌。对面楼顶，有人用镜子朝你闪了三下——那是幸存者之间的老信号。`,
+  `发动机在高架匝道上彻底熄火。仪表盘黑下去的一瞬间，你听见了远处传来的钟声。不对，这个区域已经断电很久了。那钟声来自哪里？`,
+  `你拆开绷带，伤口边缘已经泛起不正常的青灰色。军用手册上写过这种情况——尸化的早期征兆。你还有大概十二个小时，去找那家据说还囤着抗生素的社区医院。`,
 ]
 
 function endingPayload() {
@@ -73,9 +73,9 @@ function useItemPayload(userPrompt) {
       memory: `离线体验：把本该给${fits}的药${name}自己吃了，出现严重药物反应。`,
       eventSummary: '误服了不适用于自己的药物',
       choices: [
-        { id: 'A', text: '靠着墙，等眩晕过去' },
-        { id: 'B', text: '喝口水催吐' },
-        { id: 'C', text: '强撑着站起来继续赶路' },
+        { id: 'A', text: '靠着墙，等眩晕过去', basis: '药已经咽下去了，眼前发白，膝盖还撑在地上' },
+        { id: 'B', text: '喝口水催吐', basis: '胃里翻江倒海，包里应该还有能喝的水' },
+        { id: 'C', text: '强撑着站起来继续赶路', basis: '天旋地转还没停，但你还没倒下去' },
       ],
       isEnding: false,
       _mock: true,
@@ -101,8 +101,8 @@ function useItemPayload(userPrompt) {
       memory: `离线体验：把${name}给了${allyName}，救了对方一命。`,
       eventSummary: `${allyName}被他救了过来`,
       choices: [
-        { id: 'A', text: '让他先歇一会儿再走' },
-        { id: 'B', text: '立刻继续赶路' },
+        { id: 'A', text: '让他先歇一会儿再走', basis: '他额头的冷汗刚退，呼吸才匀下来' },
+        { id: 'B', text: '立刻继续赶路', basis: '药起效了，可你们还停在原地' },
       ],
       isEnding: false,
       _mock: true,
@@ -128,8 +128,8 @@ function useItemPayload(userPrompt) {
       memory: `离线体验：把${name}就地用掉了。`,
       eventSummary: '把一件物品就地消耗掉',
       choices: [
-        { id: 'A', text: '确认效果，继续行动' },
-        { id: 'B', text: '退开一些，观察周围反应' },
+        { id: 'A', text: '确认效果，继续行动', basis: '你刚在这里留下了声响和撬动的痕迹' },
+        { id: 'B', text: '退开一些，观察周围反应', basis: '你不确定刚才那一下是帮忙还是惹祸' },
       ],
       isEnding: false,
       _mock: true,
@@ -156,9 +156,9 @@ function useItemPayload(userPrompt) {
       memory: `离线体验：用${name}撬开防火门，声响引来了什么东西。`,
       eventSummary: '撬门引来未知威胁',
       choices: [
-        { id: 'A', text: '立刻退回原路，压低脚步' },
-        { id: 'B', text: '举着工具迎上去' },
-        { id: 'C', text: '屏住呼吸，贴着墙不动' },
+        { id: 'A', text: '立刻退回原路，压低脚步', basis: '门后那东西已经把头转向声音的来源' },
+        { id: 'B', text: '举着工具迎上去', basis: '手里还握着刚撬开门的那件工具' },
+        { id: 'C', text: '屏住呼吸，贴着墙不动', basis: '它没有眼睛，但正对着你这边' },
       ],
       isEnding: false,
       _mock: true,
@@ -232,9 +232,9 @@ function useItemPayload(userPrompt) {
       memory: `离线体验：拆开${name}取出了火药。`,
       eventSummary: '拆弹药取火药',
       choices: [
-        { id: 'A', text: '找个背风的角落生火' },
-        { id: 'B', text: '把火药收好，继续赶路' },
-        { id: 'C', text: '检查还有多少可用的弹药' },
+        { id: 'A', text: '找个背风的角落生火', basis: '刚倒出来的火药还在手里，风还没停' },
+        { id: 'B', text: '把火药收好，继续赶路', basis: '火药只有一次机会，弹壳已经被你捏扁' },
+        { id: 'C', text: '检查还有多少可用的弹药', basis: '这颗子弹是拆开的，包里未必还有能用的' },
       ],
       isEnding: false,
       _mock: true,
@@ -356,9 +356,9 @@ function scavengePayload(userPrompt) {
       memory: '离线体验：这次搜刮一无所获，主角继续赶路。',
       eventSummary: '一次徒劳的翻找',
       choices: [
-        { id: 'A', text: '离开这里，继续赶路' },
-        { id: 'B', text: '换个方向再找找' },
-        { id: 'C', text: '先歇一会儿，喘口气' },
+        { id: 'A', text: '离开这里，继续赶路', basis: '抽屉和柜子都翻过了，这里已经没什么可拿的' },
+        { id: 'B', text: '换个方向再找找', basis: '这一趟除了灰和泡烂的报纸，什么都没带走' },
+        { id: 'C', text: '先歇一会儿，喘口气', basis: '直起身时膝盖响了一声，体力已经下去了' },
       ],
       isEnding: false,
       _mock: true,
@@ -384,9 +384,9 @@ function scavengePayload(userPrompt) {
       memory: found ? '离线体验：再次搜刮只翻到一颗受潮子弹。' : '离线体验：同一地点已翻空，主角继续赶路。',
       eventSummary: found ? '翻到一颗受潮的子弹' : '某处已被翻空',
       choices: [
-        { id: 'A', text: '离开这里，继续赶路' },
-        { id: 'B', text: '检查四周有没有被跟踪' },
-        { id: 'C', text: '就地吃点东西补充体力' },
+        { id: 'A', text: '离开这里，继续赶路', basis: '抽屉和柜子都翻过了，这里已经没什么可拿的' },
+        { id: 'B', text: '检查四周有没有被跟踪', basis: '同一处翻第二次，后背一直对着空处' },
+        { id: 'C', text: '就地吃点东西补充体力', basis: '翻找耗了体力，包里未必还有能入口的东西' },
       ],
       isEnding: false,
       _mock: true,
@@ -409,9 +409,9 @@ function scavengePayload(userPrompt) {
       memory: '离线体验：二次搜刮收获有限，捡到一张写着门牌号的残收据。',
       eventSummary: '二次搜刮翻出一张残收据',
       choices: [
-        { id: 'A', text: '按门牌号找过去看看' },
-        { id: 'B', text: '先躲开窗外的动静' },
-        { id: 'C', text: '把子弹收好，立刻离开' },
+        { id: 'A', text: '按门牌号找过去看看', basis: '收据背面有一串像门牌号的数字' },
+        { id: 'B', text: '先躲开窗外的动静', basis: '窗外刚有东西踩碎了一块玻璃' },
+        { id: 'C', text: '把子弹收好，立刻离开', basis: '三颗受潮子弹还攥在手里，底火未必好' },
       ],
       isEnding: false,
       _mock: true,
@@ -439,9 +439,9 @@ function scavengePayload(userPrompt) {
     memory: '离线体验：首次搜刮翻到抗生素与半瓶水。',
     eventSummary: '首次搜刮有所收获',
     choices: [
-      { id: 'A', text: '趁天色还亮继续赶路' },
-      { id: 'B', text: '把水分给同行的伤员' },
-      { id: 'C', text: '先找个地方处理手上的伤口' },
+      { id: 'A', text: '趁天色还亮继续赶路', basis: '抗生素和半瓶水已经塞进包里，天还没黑透' },
+      { id: 'B', text: '把水分给同行的伤员', basis: '保温杯里还剩小半瓶没有异味的水' },
+      { id: 'C', text: '先找个地方处理手上的伤口', basis: '翻货架时手被灰和碎物蹭过' },
     ],
     isEnding: false,
     _mock: true,
@@ -496,10 +496,10 @@ function sleepPayload(userPrompt) {
     memory: `在${place}过了一夜（${risky ? '夜里出过事' : '相对安稳'}），天亮后继续行动。`,
     eventSummary: '过了一夜',
     choices: [
-      { id: 'A', text: '先清点背包，确认还剩多少水和吃的', quest: 'new' },
-      { id: 'B', text: '出门看看这条街现在的样子', quest: 'new' },
-      { id: 'C', text: '去城北，妹妹最后的位置就在那边', quest: 'main' },
-      { id: 'D', text: '天亮后再搜一遍附近，总该安全些', quest: 'new' },
+      { id: 'A', text: '先清点背包，确认还剩多少水和吃的', basis: '刚睡醒，还不知道这一夜有没有少东西', quest: 'new' },
+      { id: 'B', text: '出门看看这条街现在的样子', basis: '天光已经沿着缝隙进来了', quest: 'new' },
+      { id: 'C', text: '去城北，妹妹最后的位置就在那边', basis: '妹妹最后的定位仍指向城北', quest: 'main' },
+      { id: 'D', text: '天亮后再搜一遍附近，总该安全些', basis: '天刚亮，夜里的动静暂时停了', quest: 'new' },
     ],
     isEnding: false,
     _mock: true,
@@ -535,9 +535,9 @@ function giveItemPayload(userPrompt) {
       memory: `离线体验：把${name}交给${receiver}，换回一份压缩饼干。`,
       eventSummary: `与${receiver}做成一笔交易`,
       choices: [
-        { id: 'A', text: '收好东西，立刻离开' },
-        { id: 'B', text: '趁机打听城北的消息' },
-        { id: 'C', text: '问他还需要什么' },
+        { id: 'A', text: '收好东西，立刻离开', basis: '对方塞过来的东西还没看清' },
+        { id: 'B', text: '趁机打听城北的消息', basis: '交易刚做成，对方还没转身走' },
+        { id: 'C', text: '问他还需要什么', basis: '他接东西前先看了你手上有没有武器' },
       ],
       isEnding: false,
       _mock: true,
@@ -562,9 +562,9 @@ function giveItemPayload(userPrompt) {
     memory: `离线体验：把${name}交给${receiver}，什么也没换回来。`,
     eventSummary: `交给${receiver}的东西打了水漂`,
     choices: [
-      { id: 'A', text: '算了，继续赶路' },
-      { id: 'B', text: '开口把话挑明' },
-      { id: 'C', text: '记下这张脸，以后再说' },
+      { id: 'A', text: '算了，继续赶路', basis: '东西已经交出去了，对方什么都没给' },
+      { id: 'B', text: '开口把话挑明', basis: '他把东西塞进兜里，既没道谢也没拒绝' },
+      { id: 'C', text: '记下这张脸，以后再说', basis: '这笔付出什么都没换回来，你记住了他的脸' },
     ],
     isEnding: false,
     _mock: true,
@@ -621,10 +621,10 @@ export function mockRespond(userPrompt = '') {
       // 选项刻意"势均力敌"——没有一眼可辨的正确项；B 还特意写了剧透副词「果断地」，
       // 用于验证引擎侧的去剧透兜底（polishChoiceText 会把它摘掉）。
       choices: [
-        { id: 'A', text: '推开安全通道的门，先离开这一层', quest: 'main' },
-        { id: 'B', text: '果断地抓起墙上的灭火器迎上去', quest: 'new' },
-        { id: 'C', text: '退回诊室，把门反锁上', quest: 'main' },
-        { id: 'D', text: '拽上那个还在发愣的护士一起走', quest: 'new' },
+        { id: 'A', text: '推开安全通道的门，先离开这一层', basis: '安全通道的门就在走廊这一头', quest: 'main' },
+        { id: 'B', text: '果断地抓起墙上的灭火器迎上去', basis: '墙上挂着灭火器，眼前正有人在撕咬', quest: 'new' },
+        { id: 'C', text: '退回诊室，把门反锁上', basis: '你是从诊室这边退出来的，门还在身后', quest: 'main' },
+        { id: 'D', text: '拽上那个还在发愣的护士一起走', basis: '护士还站在原地发愣，没有跑', quest: 'new' },
       ],
       isEnding: false,
     }
@@ -641,7 +641,7 @@ export function mockRespond(userPrompt = '') {
       conditionsAdd: ['感染·临界尸化'],
       memory: '离线体验流程触发尸化。',
       eventSummary: '感染值触顶',
-      choices: [{ id: 'A', text: '（继续）' }],
+      choices: [{ id: 'A', text: '（继续）', basis: '眼前的状况还没结束' }],
       isEnding: false,
     }
   }
@@ -744,13 +744,13 @@ export function mockRespond(userPrompt = '') {
     choices: (() => {
       const activeSide = turnCount === 2 || turnCount === 3 ? '药房里的敲击声' : turnCount >= 5 ? '门后的灯' : null
       const list = [
-        { id: 'A', text: '沿主路继续往城北走', quest: 'main' },
-        { id: 'B', text: '钻进路边那辆没锁的面包车', quest: 'new' },
+        { id: 'A', text: '沿主路继续往城北走', basis: '主线仍指向城北，主路就在眼前', quest: 'main' },
+        { id: 'B', text: '钻进路边那辆没锁的面包车', basis: '路边停着一辆没锁的面包车', quest: 'new' },
       ]
       list.push(
         activeSide
-          ? { id: 'C', text: `先去处理「${activeSide}」`, quest: activeSide }
-          : { id: 'C', text: '朝那名幸存者打个手势', quest: 'new' },
+          ? { id: 'C', text: '先去处理：' + activeSide, basis: '这条支线还没了结。上一步就是冲着它来的', quest: activeSide }
+          : { id: 'C', text: '朝那名幸存者打个手势', basis: '对楼顶有人在向你打信号', quest: 'new' },
       )
       return list
     })(),

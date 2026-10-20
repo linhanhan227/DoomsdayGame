@@ -492,7 +492,7 @@ label.db-file-label,
 
 .choices { margin-top: 26px; display: flex; flex-direction: column; gap: 10px; }
 .choice {
-  display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: flex-start; gap: 14px;
   text-align: left;
   border: 1px solid var(--line);
   background: linear-gradient(90deg, var(--panel) 0%, var(--bg-2) 100%);
@@ -513,6 +513,15 @@ label.db-file-label,
   border-color: rgba(192, 57, 43, 0.55);
   background: linear-gradient(90deg, rgba(192, 57, 43, 0.14) 0%, var(--bg-2) 100%);
 }
+.choice-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.choice-text { line-height: 1.45; }
+.choice-basis {
+  font-size: 12px;
+  line-height: 1.55;
+  color: #b7a898;
+  font-weight: 400;
+}
+.choice:hover:not(:disabled) .choice-basis { color: #c9b8a4; }
 .choice-consume .choice-key {
   color: #e8b04b;
   border-color: rgba(232, 176, 75, 0.5);

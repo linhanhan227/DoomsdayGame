@@ -38,7 +38,7 @@ const MOCK_FETCH_PATCH = MOCK_CHUNK
   const chunk = '${MOCK_CHUNK}'
   window.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : (input && input.url) || ''
-    // 兼容被跨域中转包装的 URL：corsfix SDK 形式会把内层地址整段 encodeURIComponent，
+    // 本地 CORS 接口会把上游地址放进 ?url= 并整段编码，
     // 于是 "chat/completions" 变成 "chat%2Fcompletions"。两种写法都要能命中。
     const isChat = /chat\\/completions/.test(url) || /chat%2Fcompletions/i.test(url)
     if (init && init.method === 'POST' && isChat) {

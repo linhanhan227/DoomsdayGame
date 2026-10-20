@@ -144,7 +144,7 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
           游戏的事件、结局全部由大模型现场生成。本作是<b>纯静态网页版</b>：没有后端，浏览器直连模型服务商，
           配置与存档都保存在本地 <b>SQLite</b> 数据库中（持久化于浏览器 IndexedDB）。
           <br />
-          注意：浏览器直连要求服务商允许 CORS。本版已默认经<b>公共中转</b>（corsfix）访问上游，一般情况下不会再报 CORS 错误。
+          注意：浏览器直连要求服务商允许 CORS。本版默认把请求交给本页的 <b>/api/cors?url=</b> 转发，Key 不经过公共中转。
         </p>
 
         <div className="field">
@@ -255,13 +255,13 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
           <div className="field">
             <label>跨域中转（CORS）</label>
             <select value={draft.corsProxy} onChange={(e) => set('corsProxy', e.target.value)}>
-              <option value="builtin">公共中转 · corsfix（默认开启）</option>
-              <option value="off">关闭 · 直连服务商（Key 不经第三方）</option>
+              <option value="builtin">本地接口 · /api/cors?url=（默认开启）</option>
+              <option value="off">关闭 · 直连服务商</option>
               <option value="custom">自定义中转前缀</option>
             </select>
             <div className="sub">
-              已默认经公共中转（corsfix）访问上游，浏览器不再触发 CORS，<b>无需注册</b>。
-              免费额度：每 IP 60 次/分钟、每域名 10MB/月。若服务商本身支持直连，建议改为「关闭」（不经第三方，Key 更安全）。
+              默认由本页 JS 接口代为转发，并补上 CORS 响应头。<b>需要 npm run dev 或 npm run preview</b>，纯静态托管没有这个接口。
+              服务商本身支持直连时，改为「关闭」。
             </div>
             {draft.corsProxy && draft.corsProxy !== 'off' && (
               <div className="banner warn" style={{ marginTop: 8 }}>
@@ -274,7 +274,7 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
                 style={{ marginTop: 8 }}
                 value={draft.corsProxyCustom}
                 onChange={(e) => set('corsProxyCustom', e.target.value)}
-                placeholder="https://your-proxy.example.com/?url="
+                placeholder="http://127.0.0.1:5173/api/cors?url="
               />
             )}
           </div>

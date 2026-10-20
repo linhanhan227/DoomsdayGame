@@ -3,6 +3,75 @@ import react from '@vitejs/plugin-react'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
+/**
+ * 本地 CORS 代理：POST /api/cors?url=<上游地址>
+ * ------------------------------------------------------------------
+ * 浏览器把方法、请求头、请求体原样交给这个接口，接口再转发给 url。
+ * 响应补上 Access-Control-Allow-Origin，所以不依赖上游自己开 CORS。
+ * 只接受 http/https，避免被拿去打本机其它端口。
+ */
+function localCorsApi() {
+  const hopByHop = new Set([
+    'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+    'te', 'trailers', 'transfer-encoding', 'upgrade', 'host', 'content-length',
+  ])
+  const handler = async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || '*')
+    if (req.method === 'OPTIONS') {
+      res.statusCode = 204
+      res.end()
+      return
+    }
+    let target
+    try {
+      const reqUrl = new URL(req.url || '', 'http://127.0.0.1')
+      target = new URL(reqUrl.searchParams.get('url') || '')
+    } catch {
+      res.statusCode = 400
+      res.end('本地 CORS 接口需要 ?url=http(s)://...')
+      return
+    }
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+      res.statusCode = 400
+      res.end('只转发 http 与 https')
+      return
+    }
+    const chunks = []
+    for await (const chunk of req) chunks.push(chunk)
+    const body = Buffer.concat(chunks)
+    const headers = {}
+    for (const [k, v] of Object.entries(req.headers)) {
+      if (hopByHop.has(k) || k.startsWith('access-control-') || k === 'origin' || k === 'referer') continue
+      if (v != null) headers[k] = Array.isArray(v) ? v.join(', ') : v
+    }
+    try {
+      const upstream = await fetch(target, {
+        method: req.method,
+        headers,
+        body: req.method === 'GET' || req.method === 'HEAD' ? undefined : body,
+        redirect: 'follow',
+      })
+      res.statusCode = upstream.status
+      const type = upstream.headers.get('content-type')
+      if (type) res.setHeader('Content-Type', type)
+      res.end(Buffer.from(await upstream.arrayBuffer()))
+    } catch (err) {
+      res.statusCode = 502
+      res.end(`本地 CORS 接口转发失败：${err.message}`)
+    }
+  }
+  const attach = (server) => {
+    server.middlewares.use('/api/cors', handler)
+  }
+  return {
+    name: 'local-cors-api',
+    configureServer: attach,
+    configurePreviewServer: attach,
+  }
+}
+
 const require = createRequire(import.meta.url)
 
 const WASM_SRC = require.resolve('sql.js/dist/sql-wasm.wasm')
@@ -122,7 +191,7 @@ export default defineConfig(({ mode }) => {
   return {
     root: 'web',
     base: './',
-    plugins: [react(), sqlWasmInline(), ...(single ? [singleFile()] : [])],
+    plugins: [react(), sqlWasmInline(), localCorsApi(), ...(single ? [singleFile()] : [])],
     build: {
       outDir: single ? '../dist-standalone' : '../dist',
       emptyOutDir: true,
@@ -132,6 +201,11 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5173,
+      // 编辑器原子保存会在源码旁生成 `.文件名.<pid>.<uuid>.tmpdir`，
+      // Windows 上 chokidar 跟进去后文件立刻被删，会以 EBUSY 直接打崩 dev server。
+      watch: {
+        ignored: ['**/.*.tmpdir/**', '**/*.tmp'],
+      },
     },
   }
 })

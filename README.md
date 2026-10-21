@@ -141,6 +141,26 @@ npm run build
 
 [Bonto](https://bonto.dev/) 给每个应用一个容器和 `https://<子域名>.bonto.run`，从 `package.json` 的 `start` 脚本拉起进程，端口由平台通过 `PORT` 注入。仓库里的 `server.js` 就是按这套约定写的，本地和线上跑的是同一份代码。
 
+### 从仓库拉取部署（Git 通道）
+
+平台只做「拉代码 → `npm install` → `npm start`」，**不会执行 `vite build`**，所以构建产物必须入库：
+
+```bash
+npm run build
+git add dist
+git commit -m "构建产物入库"
+git push
+```
+
+`dist/` 之所以不再被 `.gitignore` 忽略，就是这条链路的要求。漏了这一步的表现很有辨识度：
+**服务其实起来了**（`/healthz` 返回 200），但访问任何路径都是 404「没有这个文件」。
+现在这种情况会返回一页部署说明，且 `/healthz` 里带 `hasIndex: false`，一条 curl 就能确认：
+
+```bash
+curl -s https://<子域名>.bonto.run/healthz
+# {"ok":true,"corsProxy":true,"hasIndex":false,...}   ← false 就是产物没上来
+```
+
 ### 一条命令
 
 ```bash

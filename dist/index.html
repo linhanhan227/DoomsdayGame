@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0d0c" />
+    <!-- iOS 全屏 / 状态栏 / 禁止电话号码自动识别（避免数字被渲染成蓝色拨号链接） -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="灰烬余生" />
+    <meta name="format-detection" content="telephone=no,date=no,address=no,email=no" />
+    <!--
+      站点图标不写死在这里：改为运行时用 Blob URL 注入（见 src/main.jsx）。
+      原因：部分托管 / 预览环境会下发 CSP（如 img-src blob: https:），
+      内联的 data: 图标会被直接拦截，浏览器随即回退去请求 /favicon.ico，
+      反而多出一条 404。blob: 恰好落在白名单里。
+      这里保留一个空壳 link，避免浏览器在脚本执行前就去请求 /favicon.ico。
+    -->
+    <link rel="icon" id="app-icon" />
+    <title>灰烬余生 · 末日生存</title>
+    <script type="module" crossorigin src="./assets/index-DhXLEGlb.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CB_PY8Tv.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

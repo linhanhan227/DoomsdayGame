@@ -1,5 +1,8 @@
 node_modules/
-dist/
+# dist/ **必须入库**：Bonto 是「从仓库拉代码 → 直接 npm start」的部署模型，
+# 平台侧不会跑 vite build。dist 一旦被忽略，容器里就只有源码，
+# server.js 找不到 index.html，访问任何路径都是 404「没有这个文件」。
+# 单文件版（dist-standalone/）只有本地双击玩需要，平台用不上，继续忽略。
 dist-standalone/
 # Bonto 部署包（scripts/build-bonto.mjs 生成）
 bonto/

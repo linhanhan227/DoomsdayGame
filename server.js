@@ -81,6 +81,40 @@ const PRIVATE_HOST =
   /^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\]|\[fd|\[fe80)/i
 const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE_TARGETS === '1'
 
+/**
+ * 静态根里连 index.html 都没有时返回的说明页。
+ * 这是部署链路的问题（产物没跟上来），不是访问路径的问题；
+ * 只回一句「没有这个文件」会让人去查路由，白绕一大圈。
+ */
+function deployHintPage() {
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>构建产物未部署</title>
+<style>
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#14110f;color:#e8e0d4;
+       font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  main{max-width:640px;padding:32px 28px}
+  h1{margin:0 0 16px;font-size:20px;letter-spacing:.02em;color:#f0b429}
+  code{background:#241f1b;padding:2px 6px;border-radius:4px;font-size:13px;color:#f7d488}
+  pre{background:#241f1b;padding:14px 16px;border-radius:8px;overflow:auto;font-size:13px}
+  p{margin:0 0 12px}
+  .dim{color:#9a8f80;font-size:13px}
+</style></head><body><main>
+<h1>服务已启动，但静态目录里没有页面</h1>
+<p><code>server.js</code> 正在正常运行，只是它的静态根目录里找不到 <code>index.html</code>。</p>
+<p>当前静态根：<code>${ROOT}</code></p>
+<p>最常见的原因：<strong>构建产物没有随代码一起部署</strong>。本项目的部署模型是
+「从仓库拉代码 → 直接 <code>npm start</code>」，平台侧不会执行 <code>vite build</code>，
+所以 <code>dist/</code> 必须在仓库里。</p>
+<p>修复：</p>
+<pre>npm run build          # 生成 dist/
+git add dist           # 构建产物必须入库
+git commit -m "构建产物入库" && git push</pre>
+<p class="dim">如果你是在本机跑：确认已执行过 <code>npm run build</code>，或改用
+<code>npm run build:bonto</code> 生成自带 public/ 的部署包。</p>
+</main></body></html>`
+}
+
 function send(res, status, body, type = 'text/plain; charset=utf-8', extra = {}) {
   res.writeHead(status, {
     'Content-Type': type,
@@ -186,6 +220,11 @@ function serveStatic(req, res, pathname) {
       full = join(ROOT, 'index.html')
     }
     if (!existsSync(full) || !statSync(full).isFile()) {
+      // 连 index.html 都没有 → 产物没部署上来，给可诊断的说明页而不是四个字
+      if (!existsSync(join(ROOT, 'index.html'))) {
+        send(res, 503, deployHintPage(), 'text/html; charset=utf-8')
+        return
+      }
       send(res, 404, '没有这个文件')
       return
     }
@@ -236,7 +275,19 @@ const server = createServer(async (req, res) => {
 
   // 平台健康检查 + 前端探测同源反代是否可用（llm.js 的 hasSameOriginProxy）
   if (pathname === '/healthz' || pathname === '/api/health') {
-    send(res, 200, JSON.stringify({ ok: true, corsProxy: true, uptime: Math.round(process.uptime()) }), 'application/json; charset=utf-8')
+    // hasIndex 让"部署成功但打开 404"能在一条 curl 里定位：false 就是产物没上来。
+    // 注意 ok 始终为 true —— 平台的健康检查看的是进程活着，产物缺失不该触发重启循环。
+    send(
+      res,
+      200,
+      JSON.stringify({
+        ok: true,
+        corsProxy: true,
+        hasIndex: existsSync(join(ROOT, 'index.html')),
+        uptime: Math.round(process.uptime()),
+      }),
+      'application/json; charset=utf-8',
+    )
     return
   }
 

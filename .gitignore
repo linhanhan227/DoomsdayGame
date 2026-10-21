@@ -1,6 +1,8 @@
 node_modules/
 dist/
 dist-standalone/
+# Bonto 部署包（scripts/build-bonto.mjs 生成）
+bonto/
 .preview/
 .workbuddy-ai/
 vite.config.js.timestamp-*

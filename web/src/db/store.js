@@ -22,7 +22,8 @@ const DEFAULTS = {
   temperature: 1.05,
   maxTokens: 2400,
   timeoutMs: 90000,
-  // 跨域中转：'off' 直连（默认） | 'corsio' 走 https://cors.io/?url= | 'custom' 自定义前缀
+  // 跨域中转：'off' 直连（默认） | 'same' 本站 /api/cors（需带服务端的部署） |
+  //           'corsio' 走 https://cors.io/?url= | 'custom' 自定义前缀
   // 旧默认值 'builtin' 已停用，读取时按直连处理。
   corsProxy: 'off',
   corsProxyCustom: '', // corsProxy === 'custom' 时使用的自定义中转前缀

@@ -64,6 +64,12 @@ function localCorsApi() {
   }
   const attach = (server) => {
     server.middlewares.use('/api/cors', handler)
+    // 与生产 server.js 保持同一契约：前端用它判断"本站是否带同源反代"（llm.js 的 hasSameOriginProxy）
+    server.middlewares.use('/api/health', (req, res) => {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      res.setHeader('Cache-Control', 'no-store')
+      res.end(JSON.stringify({ ok: true, corsProxy: true, dev: true }))
+    })
   }
   return {
     name: 'local-cors-api',

@@ -10,15 +10,49 @@
  * 注意：浏览器直连要求模型服务商允许 CORS。多数主流服务商（DeepSeek / OpenAI 等）支持；
  * 本地 Ollama 需设置 OLLAMA_ORIGINS。
  *
- * 跨域中转（默认启用）：
- *   某些服务商不返回 CORS 响应头，浏览器无法直连。
- *   内置通道走 https://cors.io/?url=<上游地址>。
- *   cors.io 会把上游响应包成 { status, headers, body }，客户端再拆出 body。
+ * 跨域中转：
+ *   某些服务商不返回 CORS 响应头，浏览器无法直连。三条出路：
+ *   · 同源中转 —— 部署在自带服务端的实例上（Bonto / 自建 Node）时走本站 /api/cors，
+ *     请求不离开自己的源，最干净；
+ *   · cors.io —— 公共代理，会把上游响应包成 { status, headers, body }，客户端再拆 body；
+ *   · 自定义前缀 —— 玩家自己的网关。
+ *   默认仍是直连；直连被 CORS 挡掉且本站有 /api/cors 时，会自动改走同源中转一次。
  */
 import { getConfig } from '../db/store.js'
 
 /** 内置 CORS 代理。查询参数名固定为 url= */
 export const LOCAL_CORS_API = 'https://cors.io/?url='
+
+/** 本站反代路径。server.js 与 vite 开发中间件都提供它 */
+export const SAME_ORIGIN_CORS_API = '/api/cors?url='
+
+/**
+ * 探测本站是否提供 /api/cors。
+ * ------------------------------------------------------------------
+ * 用 /api/health 而不是直接打 /api/cors：后者需要一个真实上游地址，
+ * 探测本身就会产生一次外部请求，既慢又可能被上游记一笔账。
+ * 结果缓存（含失败），一局游戏只探一次；file:// 下直接判定不可用。
+ */
+let sameOriginProbe = null
+export async function hasSameOriginProxy() {
+  if (sameOriginProbe !== null) return sameOriginProbe
+  sameOriginProbe = false
+  if (typeof location === 'undefined' || !/^https?:$/.test(location.protocol)) return false
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 2500)
+  try {
+    const res = await fetch('/api/health', { signal: controller.signal, cache: 'no-store' })
+    if (res.ok) {
+      const data = await res.json().catch(() => null)
+      sameOriginProbe = Boolean(data?.corsProxy)
+    }
+  } catch {
+    /* 探测失败按"不可用"处理，不影响直连 */
+  } finally {
+    clearTimeout(timer)
+  }
+  return sameOriginProbe
+}
 
 /** 把上游地址包进代理：https://cors.io/?url=<编码后的目标> */
 export function localCorsUrl(target, base = LOCAL_CORS_API) {
@@ -36,10 +70,11 @@ export function alloriginsUrl(target) {
   return localCorsUrl(target)
 }
 
-/** 按配置决定请求最终打到哪。默认直连；corsio 才包进 cors.io。旧值 builtin 按直连处理 */
+/** 按配置决定请求最终打到哪。默认直连；corsio / same / custom 才包一层中转。旧值 builtin 按直连处理 */
 export function wrapWithCorsProxy(url, cfg = getConfig()) {
   const mode = String(cfg.corsProxy || '').trim()
   if (!mode || mode === 'off' || mode === 'builtin') return url
+  if (mode === 'same') return localCorsUrl(url, SAME_ORIGIN_CORS_API)
   if (mode === 'custom') {
     const prefix = String(cfg.corsProxyCustom || '').trim()
     if (!prefix) return url
@@ -95,10 +130,8 @@ export function extractJSON(text) {
 
 async function rawChat({ config, system, user, temperature, jsonMode }) {
   const directUrl = joinUrl(config.baseUrl, 'chat/completions')
-  const url = wrapWithCorsProxy(directUrl, config)
-  const viaProxy = url !== directUrl
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs)
+  const configuredUrl = wrapWithCorsProxy(directUrl, config)
+  let viaProxy = configuredUrl !== directUrl
 
   const body = {
     model: config.model,
@@ -112,38 +145,66 @@ async function rawChat({ config, system, user, temperature, jsonMode }) {
   }
   if (jsonMode) body.response_format = { type: 'json_object' }
 
-  let res
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new LLMError(`请求超时（>${Math.round(config.timeoutMs / 1000)}s），请检查网络或改用更快的模型`)
+  /** 单次投递。每次新建 AbortController，让超时从这一次开始重新计时 */
+  const send = async (target) => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), config.timeoutMs)
+    try {
+      const res = await fetch(target, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+      return { res, text: await res.text() }
+    } finally {
+      clearTimeout(timer)
     }
-    throw new LLMError(
+  }
+
+  const describeFailure = (err) => {
+    if (err.name === 'AbortError') {
+      return new LLMError(`请求超时（>${Math.round(config.timeoutMs / 1000)}s），请检查网络或改用更快的模型`)
+    }
+    if (viaProxy) {
+      return new LLMError(
+        `无法连接模型服务：${err.message}\n` +
+          `当前请求经 CORS 中转转发。常见原因：① 中转或上游不可达；② 网络拦截了该域名。\n` +
+          `建议：若服务商本身支持直连，把跨域中转改为「关闭」。`,
+        { cause: err },
+      )
+    }
+    return new LLMError(
       `无法连接模型服务：${err.message}\n` +
-        (viaProxy
-          ? `当前请求经 CORS 代理（https://cors.io/?url=）转发。常见原因：① 代理或上游不可达；② 网络拦截了该域名。\n` +
-            `建议：若服务商本身支持直连，把跨域中转改为「关闭」。`
-          : `常见原因：① 该服务商未返回 CORS 响应头，浏览器不允许跨域直连；② 地址不可达。\n` +
-            `若是 CORS：在设置里把跨域中转改为「cors.io」，或改用支持跨域直连的服务商。`),
+        `常见原因：① 该服务商未返回 CORS 响应头，浏览器不允许跨域直连；② 地址不可达。\n` +
+        `若是 CORS：把跨域中转改为「同源中转（本站 /api/cors）」——需要部署在带服务端的实例上；` +
+        `没有服务端时改用「cors.io」。`,
       { cause: err },
     )
   }
 
-  let text
+  let out
   try {
-    text = await res.text()
-  } finally {
-    clearTimeout(timer)
+    out = await send(configuredUrl)
+  } catch (err) {
+    // 直连被 CORS / 网络挡掉，而本站恰好带反代：自动再走一次同源中转。
+    // 只在"玩家没显式选中转"时兜底，不覆盖玩家的明确选择。
+    if (!viaProxy && (await hasSameOriginProxy())) {
+      try {
+        out = await send(localCorsUrl(directUrl))
+        viaProxy = true
+      } catch (err2) {
+        throw describeFailure(err2)
+      }
+    } else {
+      throw describeFailure(err)
+    }
   }
+
+  let { res, text } = out
   if (viaProxy) {
     try {
       const wrapped = JSON.parse(text)

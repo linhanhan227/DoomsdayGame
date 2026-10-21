@@ -6,9 +6,10 @@ AI 驱动的末日丧尸生存文字游戏。纯静态网页，没有后端。�
 | --- | --- |
 | 版本 | 2.0.0（`zombie-survival-text-game`） |
 | 形态 | 单人 · 回合制 · 纯文字 · 浏览器 |
-| 运行时 | Node.js 18+（仅用于安装与构建；玩的时候只需要浏览器） |
+| 运行时 | Node.js 18+（用于安装、构建与托管；玩的时候只需要浏览器） |
 | 存储 | 浏览器内 SQLite（sql.js / WASM），文件落在 IndexedDB |
 | 模型 | 浏览器直连任意 OpenAI 兼容接口。跨域中转默认关闭 |
+| 托管 | 任意静态托管；Bonto（bonto.dev）一条命令：`npm run deploy:bonto` |
 
 ---
 
@@ -27,7 +28,7 @@ AI 驱动的末日丧尸生存文字游戏。纯静态网页，没有后端。�
 
 - **选项必须能在剧情里对上。** 每个选项带一句「依据」，写在按钮下方。选项里点到的物件、人名、地点，必须已经出现在本回合正文、背包、地点或任务线索里。模型没写进去时，引擎用它自己给出的依据补进这一段叙事，再让你选择。背包和主线里本来就有的，不会再重复补一句。
 - **跨域中转默认关闭。** 请求直接发给服务商，不经过公共代理。
-- **需要时再开。** 服务商不返回 CORS 头时，在设置里改为 cors.io（`https://cors.io/?url=`），或填写自己的网关前缀。
+- **需要时再开。** 服务商不返回 CORS 头时，在设置里改为「同源中转」（部署在带服务端的实例上，请求不出自己的源），或 cors.io，或填写自己的网关前缀。直连被拦且本站带服务端时会自动兜底。
 
 ---
 
@@ -35,6 +36,7 @@ AI 驱动的末日丧尸生存文字游戏。纯静态网页，没有后端。�
 
 ```
 ├── package.json              # 脚本与依赖
+├── server.js                 # 平台入口：静态托管 + /api/cors 反代 + /healthz（零依赖）
 ├── vite.config.js            # 双产物构建，以及开发/预览用的 /api/cors 转发
 ├── web/
 │   ├── index.html
@@ -43,16 +45,19 @@ AI 驱动的末日丧尸生存文字游戏。纯静态网页，没有后端。�
 │       ├── core/
 │       │   ├── engine.js     # 状态机、数值、昼夜、任务链、地图、结局
 │       │   ├── prompt.js     # 世界设定、状态快照、事件骰、各动作提示词
-│       │   ├── llm.js        # OpenAI 兼容客户端、JSON 提取、本地 CORS 地址拼接
+│       │   ├── llm.js        # OpenAI 兼容客户端、JSON 提取、CORS 地址拼接
 │       │   └── mock.js       # 离线通道，只给自检用，不能正式开局
 │       ├── db/
 │       │   ├── sqlite.js     # WASM 初始化与 IndexedDB 持久化
 │       │   └── store.js      # 存档与设置仓储
 │       └── components/       # 开局、对局、结局、设置
-└── scripts/selftest.mjs      # 提示词单元检查 + 浏览器端到端自检
+└── scripts/
+    ├── build-bonto.mjs       # 生成 bonto/ 部署包（零依赖清单 + 构建产物）
+    ├── deploy-bonto.mjs      # 构建 + 建应用 + 上传，一条命令发布
+    └── selftest.mjs          # 提示词单元检查 + 浏览器端到端自检
 ```
 
-构建产物 `dist/`、`dist-standalone/` 和 `node_modules/` 不入库。
+构建产物 `dist/`、`dist-standalone/`、部署包 `bonto/` 和 `node_modules/` 不入库。
 
 ### 数据表
 
@@ -104,7 +109,7 @@ npm run build
 | `npm run build:host` | 只写 `dist/` | 多文件，给静态托管 |
 | `npm run build:single` | 只写 `dist-standalone/` | 单文件，双击即玩 |
 | `npm run preview` | 预览已构建的 `dist/`，带 `/api/cors` | [http://localhost:4173](http://localhost:4173) |
-| `npm run serve` | 用 Node 托管 `dist/`，并反代 `/api/cors?url=` | 同上。局域网把 `HOST=0.0.0.0` 加上 |
+| `npm start`（= `npm run serve`） | 用 `server.js` 托管 `dist/`，并反代 `/api/cors?url=` | [http://localhost:3000](http://localhost:3000)。端口取 `PORT`，监听地址取 `HOST` |
 
 `base` 为 `'./'`，产物可以放在网站子目录里。
 
@@ -128,7 +133,59 @@ npm run build
 | `dist/assets/mock-*.js` | ~15 KB，仅自检时加载 |
 | `dist-standalone/index.html` | ~1.26 MB（gzip ~560 KB） |
 
-托管侧建议对 `assets/` 开 gzip 或 brotli，并按内容哈希做长缓存。
+托管侧建议对 `assets/` 开 gzip 或 brotli，并按内容哈希做长缓存。`server.js` 已经自带 gzip（主包 1.2 MB → 约 540 KB），静态托管上则由托管方压缩。
+
+---
+
+## 部署到 Bonto
+
+[Bonto](https://bonto.dev/) 给每个应用一个容器和 `https://<子域名>.bonto.run`，从 `package.json` 的 `start` 脚本拉起进程，端口由平台通过 `PORT` 注入。仓库里的 `server.js` 就是按这套约定写的，本地和线上跑的是同一份代码。
+
+### 一条命令
+
+```bash
+npx @sidequestvr/bonto auth login          # 只需一次，浏览器里输 6 位码
+npm run deploy:bonto -- --subdomain ashes-remain
+```
+
+`deploy:bonto` 会依次做四件事：构建 `dist/` → 生成 `bonto/` 部署包 → 应用不存在就创建 → 逐文件上传（`package.json` 最后传，避免用残缺状态触发一次部署）。上传完成后平台自动部署，十几秒后访问 `https://ashes-remain.bonto.run`。
+
+先看计划不执行，加 `--dry-run`；产物已是最新不想再构建，加 `--skip-build`。
+
+### 为什么另做 `bonto/` 部署包
+
+直接把仓库根目录推上去也能跑，但根 `package.json` 带着 vite / rollup 这些构建期依赖，平台会在 512 MB 的容器里跑一遍 `npm install`——既慢又可能 OOM，而产物其实早就构建好了。
+
+`scripts/build-bonto.mjs` 因此裁出一个自包含目录：
+
+```
+bonto/
+├── package.json     # 零依赖，只有 "start": "node server.js"
+├── server.js        # 与仓库根目录的同一份
+└── public/          # dist/ 的内容
+```
+
+平台上 `npm install` 无事可做，`npm start` 直接起服务。整个包 6 个文件、约 1.3 MB。
+
+### 平台约定（改代码时别破坏）
+
+| 约定 | 为什么 |
+| --- | --- |
+| 端口取 `process.env.PORT`，缺省 3000 | 平台注入的端口不固定 |
+| 必须绑 `0.0.0.0` | 绑 `127.0.0.1` 时容器外的反代连不进来，表现为平台报健康检查失败 / 502，而容器日志一切正常 |
+| 提供 `/healthz` | 平台健康检查与冷启动唤醒先打这个路径 |
+| 静态目录自动探测 `dist/` → `public/` → `dist-standalone/` | 本地和部署包用同一个入口，不需要各自配置 |
+| 不写服务端文件 | 容器重启会丢临时盘。存档本来就在浏览器 IndexedDB 里，服务端保持无状态才能安全休眠 |
+
+### 计费与休眠
+
+Bonto 免费额度按小时计。纯静态站点不扣时长，但**有 `start` 脚本的 Node 应用会扣**（免费额度每月 50 小时），空闲 30 分钟后自动休眠、下次请求唤醒。
+
+如果只想要零时长的静态托管，把 `bonto/public/` 的内容直接当静态站上传即可，代价是**没有 `/api/cors`**，模型请求只能靠服务商自己的 CORS 头或 cors.io。需要同源反代时仍走 Node 应用这条路。
+
+### 其它托管
+
+`dist/` 是纯静态产物，Nginx、OSS / COS / S3、GitHub Pages、Vercel、Netlify 都能直接放。只有一点区别：**静态托管没有 `/api/cors`**，设置里选「同源中转」会 404，保持「关闭」或改用 cors.io。
 
 ---
 
@@ -147,15 +204,18 @@ npm run build
 
 ### 跨域
 
-浏览器直连要求上游返回 CORS 头。设置里的「跨域中转」有三档：
+浏览器直连要求上游返回 CORS 头。设置里的「跨域中转」有四档：
 
 | 选项 | 行为 |
 | --- | --- |
 | 关闭（默认） | 浏览器直连上游。上游必须允许 CORS |
+| 同源中转 · 本站 `/api/cors` | 请求打到自己部署的服务端，由它转发。浏览器侧不需要 CORS，Key 不经过第三方。**需要带服务端的部署**（Bonto Node 应用 / `npm start`） |
 | cors.io · https://cors.io/?url= | 浏览器 POST 到 `https://cors.io/?url=<编码后的上游 URL>`。由该代理转发 POST 正文和鉴权头，并补上 CORS 头 |
 | 自定义中转前缀 | 填你自己的网关前缀。以 `?url=` 结尾时按同样方式编码上游地址 |
 
-默认不依赖本机反代。`vite.config.js` 的 `localCorsApi()` 和 `scripts/cors-proxy.mjs` 仍保留 `/api/cors?url=`，需要时可在「自定义中转前缀」里填上。
+直连被 CORS 挡掉、且本站带服务端时，`llm.js` 会**自动改走一次同源中转**（先用 `/api/health` 探测，一局只探一次）。玩家显式选了中转时不覆盖。
+
+`vite.config.js` 的 `localCorsApi()`（开发/预览）和根目录 `server.js`（生产）都提供 `/api/cors?url=` 与 `/api/health`，两者契约一致。
 
 拼接逻辑在 `web/src/core/llm.js` 的 `localCorsUrl()` / `wrapWithCorsProxy()`。
 
@@ -181,10 +241,10 @@ npm run build
 
 ## 边界
 
-- 没有服务端。存档、Key、配置都在这台浏览器的 IndexedDB 里，清站点数据等于删档。导出文件是唯一备份。
+- 没有数据后端。存档、Key、配置都在这台浏览器的 IndexedDB 里，清站点数据等于删档。导出文件是唯一备份。`server.js` 只发静态文件、转一次跨域请求，不写盘、不存状态，所以容器随时可以休眠或重启。
 - 没有 Key、连通性测试没过，不能开局。`mock` 通道不能用来正式开局，只服务于 `scripts/selftest.mjs`。
 - 模型必须返回约定 JSON。解析失败时本回合不会推进；检查 Base URL、模型名和余额。
-- 静态文件自己不能发跨域请求。默认直连，上游必须允许 CORS。不支持时再打开 cors.io；打开后请求（含 API Key）会经过该代理。
+- 静态托管上页面自己不能发跨域请求。默认直连，上游必须允许 CORS；不支持时用「同源中转」（需带服务端的部署）或 cors.io。
 - 单文件版约 1 MB 出头，不适合当作「轻量页面」优化目标；换来的是双击可玩、对 CDN 的 MIME 和 wasm 扩展名没有要求。
 - 自检脚本会拉起外部 Chrome 调试端口，并访问本机预览地址。它不是玩家流程的一部分。
 
@@ -208,7 +268,10 @@ node scripts/selftest.mjs
 ## 常见问题
 
 **打不开模型，或控制台出现 CORS。**  
-默认保持「关闭 · 直连服务商」。上游不允许 CORS 时改为 cors.io，或在「自定义中转前缀」填你自己的网关。Ollama 需要 `OLLAMA_ORIGINS=*`。
+先确认是不是纯静态托管：那种部署没有 `/api/cors`，只能靠上游自己的 CORS 头或 cors.io。有服务端时把跨域中转改为「同源中转」，或直接留「关闭」——直连失败会自动兜底走同源中转一次。本地 Ollama 需要 `OLLAMA_ORIGINS=*`。
+
+**Bonto 上打开是 502，或一直转圈。**  
+先看日志：`npx @sidequestvr/bonto logs <子域名> --tail 50`。三种常见原因：① 端口没取 `PORT`；② 绑了 `127.0.0.1` 而不是 `0.0.0.0`；③ 上传时漏了 `public/`，`server.js` 找不到静态目录。前两条 `server.js` 已经处理，改动它时别改回去。
 
 **选项里出现正文没写过的东西。**  
 看按钮下的「依据」，并回头看这一段末尾。引擎会把对不上的物件用依据补进叙事。若依据本身也对不上背包、地点和任务线索，那一句会出现在正文末尾。刷新旧存档不会改写已经生成过的段落。

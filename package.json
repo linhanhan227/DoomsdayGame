@@ -3,14 +3,20 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "AI 驱动的末日丧尸生存文字游戏 —— 纯静态网页版（无后端），SQLite(WASM) 存档",
+  "description": "AI 驱动的末日丧尸生存文字游戏 —— 前端纯静态（无数据库后端），SQLite(WASM) 存档",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build && vite build --mode single",
     "build:host": "vite build",
     "build:single": "vite build --mode single",
     "preview": "vite preview",
-    "serve": "node scripts/cors-proxy.mjs"
+    "start": "node server.js",
+    "serve": "node server.js",
+    "build:bonto": "npm run build:host && node scripts/build-bonto.mjs",
+    "deploy:bonto": "node scripts/deploy-bonto.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

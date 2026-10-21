@@ -26,7 +26,10 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
       model: settings?.model || FALLBACK_MODEL,
       apiKey: '',
       temperature: settings?.temperature ?? 1.05,
-      corsProxy: settings?.corsProxy === 'corsio' || settings?.corsProxy === 'custom' ? settings.corsProxy : 'off',
+      corsProxy:
+        settings?.corsProxy === 'corsio' || settings?.corsProxy === 'custom' || settings?.corsProxy === 'same'
+          ? settings.corsProxy
+          : 'off',
       corsProxyCustom: settings?.corsProxyCustom || '',
     }
   })
@@ -141,8 +144,8 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
       <div className="modal">
         <h3>AI 通道设置</h3>
         <p className="hint">
-          游戏的事件、结局全部由大模型现场生成。本作是<b>纯静态网页版</b>：没有后端，浏览器直连模型服务商，
-          配置与存档都保存在本地 <b>SQLite</b> 数据库中（持久化于浏览器 IndexedDB）。
+          游戏的事件、结局全部由大模型现场生成。本作<b>没有数据后端</b>：配置与存档都保存在本地 <b>SQLite</b> 数据库中
+          （持久化于浏览器 IndexedDB），模型请求默认由浏览器直连服务商。
           <br />
           注意：浏览器直连要求服务商允许 CORS。本版默认<b>关闭</b>跨域中转，请求直接发给服务商。
         </p>
@@ -256,13 +259,20 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
             <label>跨域中转（CORS）</label>
             <select value={draft.corsProxy} onChange={(e) => set('corsProxy', e.target.value)}>
               <option value="off">关闭 · 直连服务商（默认）</option>
+              <option value="same">同源中转 · 本站 /api/cors</option>
               <option value="corsio">cors.io · https://cors.io/?url=</option>
               <option value="custom">自定义中转前缀</option>
             </select>
             <div className="sub">
-              默认浏览器直连服务商，不经过公共代理。服务商未返回 CORS 头时，再改为 cors.io 或填写自己的网关。
+              默认浏览器直连服务商，不经过任何代理。服务商未返回 CORS 头时，用<b>同源中转</b>（部署在带服务端的实例上才有）或
+              cors.io。直连被拦且本站带服务端时，会自动改走同源中转一次。
             </div>
-            {draft.corsProxy && draft.corsProxy !== 'off' && (
+            {draft.corsProxy === 'same' && (
+              <div className="banner ok" style={{ marginTop: 8 }}>
+                请求由<b>本站服务端</b>转发（<code>/api/cors</code>），不经过第三方。若页面是纯静态托管打开的，这条通道不可用。
+              </div>
+            )}
+            {draft.corsProxy && draft.corsProxy !== 'off' && draft.corsProxy !== 'same' && (
               <div className="banner warn" style={{ marginTop: 8 }}>
                 ⚠ 当前请求经中转服务转发：请求（含 <b>API Key</b>）会经过第三方服务器。
                 若你的服务商支持直连，请把上面改为「关闭」。

@@ -330,6 +330,164 @@ function BagPanel({ game, busy, onPick, onClose }) {
 }
 
 /** 顶栏「剧情标记」弹层：世界目前记住的关键事实与伏笔 */
+/** 制作：列出能做和还缺材料的配方。材料按分类匹配，按钮上写明这次会用掉哪几件。 */
+function CraftPanel({ game, busy, onCraft, onClose }) {
+  const recipes = game.recipes || []
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="bag-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="panel-head">
+          <div className="panel-title">🔧 制作</div>
+          <div className="panel-sub">
+            {game.usedThisTurn ? `本回合已处理「${game.usedThisTurn}」` : '材料够就能做。做成之后本回合不能再动手。'}
+          </div>
+          <button className="panel-close" onClick={onClose} title="关闭">✕</button>
+        </div>
+        <div className="panel-body">
+          {recipes.map((r) => (
+            <div className="bag-item" key={r.id}>
+              <div className="bag-item-main">
+                <span className="bag-item-title">
+                  <span className="bag-item-name">{r.name}</span>
+                  <span className="bag-item-qty">{r.category}</span>
+                </span>
+                <button
+                  className="bag-use"
+                  disabled={busy || !game.canCraft || !r.affordable}
+                  onClick={() => onCraft(r.id)}
+                  title={r.affordable ? `用掉 ${r.using.join('、')}，花 ${r.hours} 小时` : `还缺：${r.need.join('、')}`}
+                >
+                  {r.affordable ? '制作' : '缺材料'}
+                </button>
+              </div>
+              <div className="bag-item-note">
+                {r.note} · 需要 {r.need.join('、')}
+                {r.using?.length ? ` · 将用 ${r.using.join('、')}` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 据点：每个已知落脚点能装的四件加固，装过的不再出现。 */
+function ShelterPanel({ game, busy, onUpgrade, onClose }) {
+  const list = game.sheltersDetail || []
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="bag-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="panel-head">
+          <div className="panel-title">🏠 据点</div>
+          <div className="panel-sub">门和床都装上之后，这里过夜的质量会高一档，上限 3。</div>
+          <button className="panel-close" onClick={onClose} title="关闭">✕</button>
+        </div>
+        <div className="panel-body">
+          {list.length === 0 && <div className="empty">还没有已知的落脚点。叙事里确立一处能过夜的地方之后，它会出现在这里。</div>}
+          {list.map((s) => (
+            <div className="bag-group" key={s.name}>
+              <div className="bag-cat">{s.name} · 质量 {s.effectiveQuality}</div>
+              {s.installed?.length > 0 && <div className="bag-item-note">已有：{s.installed.join('、')}</div>}
+              {(s.next || []).map((slot) => (
+                <div className="bag-item" key={slot.id}>
+                  <div className="bag-item-main">
+                    <span className="bag-item-name">{slot.label}</span>
+                    <button
+                      className="bag-use"
+                      disabled={busy || !game.canCraft || !slot.affordable}
+                      onClick={() => onUpgrade(s.name, slot.id)}
+                      title={`需要 ${slot.need.join('、')}，花 ${slot.hours} 小时`}
+                    >
+                      {slot.affordable ? '加固' : '缺材料'}
+                    </button>
+                  </div>
+                  <div className="bag-item-note">需要 {slot.need.join('、')}</div>
+                </div>
+              ))}
+              {(s.next || []).length === 0 && <div className="empty">这里能装的都装上了</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 交易：先向某人开口要一份报价，再决定成交还是走开。 */
+function TradePanel({ game, busy, onOffer, onAccept, onDecline, onClose }) {
+  const partners = ['路过的人', ...(game.tradePartners || [])]
+  const offer = game.tradeOffer
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="bag-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="panel-head">
+          <div className="panel-title">🤝 交易</div>
+          <div className="panel-sub">用背包里能换的东西换一件具体的回报。成交才换手。</div>
+          <button className="panel-close" onClick={onClose} title="关闭">✕</button>
+        </div>
+        <div className="panel-body">
+          {offer ? (
+            <div className="bag-item">
+              <div className="bag-item-name">
+                {offer.partner} 要用你的「{offer.give?.name}」换「{offer.get?.name}」
+              </div>
+              <div className="bag-item-note">{offer.get?.note || ''}</div>
+              <span className="bag-btns">
+                <button className="bag-use" disabled={busy || !game.canCraft} onClick={onAccept}>成交</button>
+                <button className="bag-give" disabled={busy} onClick={onDecline}>走开</button>
+              </span>
+            </div>
+          ) : (
+            partners.map((name) => (
+              <div className="bag-item" key={name}>
+                <div className="bag-item-main">
+                  <span className="bag-item-name">{name}</span>
+                  <button className="bag-use" disabled={busy || !game.canTrade} onClick={() => onOffer(name)}>
+                    开口
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+          {!game.canTrade && !offer && <div className="empty">背包里没有能拿去换的食物、药品、弹药，或标了可交换的东西。</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 技能：四项经验与等级。等级由引擎结算，这里只展示。 */
+function SkillsPanel({ skills, onClose }) {
+  const list = skills || {}
+  const order = ['scavenge', 'combat', 'craft', 'social']
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="bag-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="panel-head">
+          <div className="panel-title">📈 技能</div>
+          <div className="panel-sub">每 40 点经验升一级，上限 5 级。升级只改掉率、受伤、感染和交易，不改剧情。</div>
+          <button className="panel-close" onClick={onClose} title="关闭">✕</button>
+        </div>
+        <div className="panel-body">
+          {order.map((id) => {
+            const s = list[id] || { xp: 0, level: 0, label: id, effect: '' }
+            return (
+              <div className="bag-item" key={id}>
+                <div className="bag-item-main">
+                  <span className="bag-item-name">{s.label}</span>
+                  <span className="bag-item-qty">{s.level} 级 · {s.xp} 经验</span>
+                </div>
+                <div className="bag-item-note">{s.effect}</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function FlagsPanel({ flags, onClose }) {
   return (
     <div className="overlay" onClick={onClose}>
@@ -792,6 +950,11 @@ export default function GameScreen({
   onSleep,
   onUseItem,
   onGiveItem,
+  onCraft,
+  onOfferTrade,
+  onAcceptTrade,
+  onDeclineTrade,
+  onUpgrade,
   onBack,
   onOpenSettings,
   onExportDb,
@@ -887,6 +1050,18 @@ export default function GameScreen({
             >
               🎒 背包<span className="btn-badge">{game.inventory.length}</span>
             </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setPanel('craft')} title="用背包里的材料做东西">
+              🔧 制作
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setPanel('shelter')} title="给已知落脚点装门、火堆、床、储物">
+              🏠 据点<span className="btn-badge">{(game.sheltersDetail || []).length}</span>
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setPanel('trade')} title="用东西换东西或情报">
+              🤝 交易
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setPanel('skills')} title="搜刮、战斗、制作、交涉的等级">
+              📈 技能
+            </button>
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => setPanel('map')}
@@ -961,7 +1136,10 @@ export default function GameScreen({
             const isScavengeEntry = entry.kind === 'scavenge'
             const isUseEntry = entry.kind === 'useitem'
             const isGiveEntry = entry.kind === 'giveitem'
-            const isAction = isScavengeEntry || isUseEntry || isGiveEntry
+            const isCraftEntry = entry.kind === 'craft'
+            const isTradeEntry = entry.kind === 'trade'
+            const isUpgradeEntry = entry.kind === 'upgrade'
+            const isAction = isScavengeEntry || isUseEntry || isGiveEntry || isCraftEntry || isTradeEntry || isUpgradeEntry
             const isQuestEntry = entry.kind === 'quest'
             return (
               <div className={`log-entry kind-${entry.kind || 'event'}`} key={`${game.id}-${i}-${entry.turn}`}>
@@ -974,8 +1152,14 @@ export default function GameScreen({
                         ? '使用物品'
                         : isGiveEntry
                           ? '交出物品'
-                          : isQuestEntry
-                            ? '任务链'
+                          : isCraftEntry
+                            ? '制作'
+                            : isTradeEntry
+                              ? '交易'
+                              : isUpgradeEntry
+                                ? '加固据点'
+                                : isQuestEntry
+                                  ? '任务链'
                             : entry.kind === 'opening'
                               ? '开局'
                               : `第 ${entry.turn} 回合`}
@@ -1186,6 +1370,23 @@ export default function GameScreen({
       {panel === 'bag' && (
         <BagPanel game={game} busy={busy} onPick={setPicker} onClose={() => setPanel(null)} />
       )}
+      {panel === 'craft' && (
+        <CraftPanel game={game} busy={busy} onCraft={(id) => { setPanel(null); onCraft(id) }} onClose={() => setPanel(null)} />
+      )}
+      {panel === 'shelter' && (
+        <ShelterPanel game={game} busy={busy} onUpgrade={(name, slot) => { setPanel(null); onUpgrade(name, slot) }} onClose={() => setPanel(null)} />
+      )}
+      {panel === 'trade' && (
+        <TradePanel
+          game={game}
+          busy={busy}
+          onOffer={onOfferTrade}
+          onAccept={() => { setPanel(null); onAcceptTrade() }}
+          onDecline={() => { onDeclineTrade() }}
+          onClose={() => setPanel(null)}
+        />
+      )}
+      {panel === 'skills' && <SkillsPanel skills={game.skills} onClose={() => setPanel(null)} />}
       {panel === 'map' && <MapPanel game={game} onClose={() => setPanel(null)} />}
       {panel === 'flags' && <FlagsPanel flags={game.flags} onClose={() => setPanel(null)} />}
       {panel === 'conditions' && (

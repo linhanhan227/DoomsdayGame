@@ -19,6 +19,12 @@ import {
   buildConsumePrompt,
   buildSleepPrompt,
   buildEndingPrompt,
+  buildCraftPrompt,
+  buildTradePrompt,
+  buildUpgradePrompt,
+  RECIPES,
+  UPGRADE_SLOTS,
+  SKILL_DEFS,
   makeSeed,
   rollEventPlan,
   questFocusOf,
@@ -169,6 +175,15 @@ function baseState() {
     // 使用物品：每回合限 1 次，记录本回合已使用的物品名
     usedThisTurn: null,
     useCount: 0,
+    // 制作：每回合限 1 次（与使用/交出共用 usedThisTurn，避免同一回合连做两件大事）
+    craftCount: 0,
+    // 交易：现场生成的报价只在成交前有效，成交后清空
+    tradeOffer: null,
+    tradeCount: 0,
+    // 据点升级：每个落脚点的加固件 { [shelterName]: { door, fire, bed, storage } }
+    upgrades: {},
+    // 技能经验：搜刮 / 战斗 / 制作 / 交涉，各自独立累积
+    skills: { scavenge: 0, combat: 0, craft: 0, social: 0 },
     over: false,
     ending: null,
   }
@@ -189,9 +204,12 @@ function applyShelters(state, raw) {
     } else {
       state.shelters.push({ name, quality, note: String(sh.note || '').slice(0, 60), day: state.day })
     }
+    ensureUpgrade(state, name)
   }
   for (const name of arr(raw.sheltersRemove)) {
-    state.shelters = state.shelters.filter((x) => x.name !== name)
+    const nm = String(name || '')
+    state.shelters = state.shelters.filter((x) => x.name !== nm)
+    if (state.upgrades && state.upgrades[nm]) delete state.upgrades[nm]
   }
   // 落脚点也是"已探明地点"——登记进区域地图（不额外计一次到访）
   for (const s of state.shelters) placeMapNode(state, s.name, { shelter: true, visit: false })
@@ -459,6 +477,14 @@ function completeMainQuest(state, nextRaw) {
 
 function applyStateChanges(state, raw) {
   const delta = raw.stateDelta && typeof raw.stateDelta === 'object' ? raw.stateDelta : {}
+  // 制作等级抵消本回合的感染增量：每级少 1 点，抵消不了已有的感染
+  if (Number(delta.infection) > 0) {
+    delta.infection = Math.max(0, Number(delta.infection) - skillLevel(state.skills?.craft))
+  }
+  // 战斗等级减轻本回合受到的伤害：每级少掉 1 点生命，不会因此变成回血
+  if (Number(delta.hp) < 0) {
+    delta.hp = Math.min(0, Number(delta.hp) + skillLevel(state.skills?.combat))
+  }
   for (const k of STAT_KEYS) {
     if (delta[k] !== undefined) state.stats[k] = clamp(state.stats[k] + Number(delta[k]))
   }
@@ -1083,7 +1109,7 @@ export function sleepPlaces(state) {
   const shelters = (state.shelters || []).map((s) => ({
     name: s.name,
     label: s.name,
-    quality: Math.max(1, Math.min(3, Number(s.quality) || 1)),
+    quality: effectiveShelterQuality(state, s),
     note: s.note || '',
   }))
   return [here, ...shelters]
@@ -1435,6 +1461,16 @@ export function publicState(state) {
     shelters: state.shelters || [],
     canSleep: canSleep(state),
     sleepPlaces: canSleep(state) ? sleepPlaces(state) : [],
+    // 制作 / 据点 / 交易 / 技能
+    recipes: recipeView(state),
+    canCraft: !state.over && !state.usedThisTurn,
+    sheltersDetail: shelterView(state),
+    tradeOffer: state.tradeOffer || null,
+    canTrade: !state.over && !state.usedThisTurn && (state.inventory || []).some((i) => i && (i.tradable || i.category === '食物' || i.category === '药品' || i.category === '弹药')),
+    tradePartners: state.allies.map((a) => a.name).filter(Boolean),
+    skills: skillView(state),
+    craftCount: state.craftCount || 0,
+    tradeCount: state.tradeCount || 0,
   }
 }
 
@@ -1491,6 +1527,7 @@ function rollScavengePlan(state, depth) {
   if ((state.stats.stamina || 0) <= 25) rate *= 0.75 // 体力濒危，动作变形
   if ((state.stats.infection || 0) >= 55) rate *= 0.7 // 终末期，手抖、视线糊
   rate *= weatherLootMod(state) // 天气影响：雾/雨/雪中翻找更难发现小件
+  rate *= skillLootMod(state) // 搜刮技能：每级 +6% 掉率
   rate = Math.max(0.05, Math.min(0.92, rate))
 
   let maxItems = 0
@@ -1638,6 +1675,8 @@ export async function scavenge(id) {
   // 现场掷骰：这一次是否额外撞上插曲（危险 / 机遇），与产出配额独立结算
   plan.special = rollScavengeSpecial(state, depth)
 
+  gainSkill(state, 'scavenge', 8)
+
   const raw = await generateScavenge(state, depth, plan)
 
   // **概率裁剪**：把模型给的产出按掉率逐件重掷，命中多少留多少。
@@ -1752,6 +1791,8 @@ export async function useItem(id, itemName, target) {
   state.stats.stamina = clamp(state.stats.stamina - 4)
   state.usedThisTurn = item.name
   state.useCount = (state.useCount || 0) + 1
+  // 武器 / 弹药的使用按「战斗」计经验，其余按「制作」（动手处理一件东西）
+  gainSkill(state, item.category === '武器' || item.category === '弹药' ? 'combat' : 'craft', 6)
 
   const raw = await generateUseItem(state, item, who)
 
@@ -1835,6 +1876,7 @@ export async function giveItem(id, itemName, targetName) {
   state.stats.stamina = clamp(state.stats.stamina - 3)
   state.usedThisTurn = item.name
   state.useCount = (state.useCount || 0) + 1
+  gainSkill(state, 'social', 8)
 
   const raw = await generateGiveItem(state, item, who)
 
@@ -1882,6 +1924,425 @@ export async function giveItem(id, itemName, targetName) {
     }
   }
 
+  const cause = pendingEndingCause(state)
+  if (cause) await forceEnding(state, cause)
+
+  state.updatedAt = Date.now()
+  saveSession(state)
+  return publicState(state)
+}
+
+/* ------------------------------ 制作 / 据点 / 交易 / 技能 ------------------------------ */
+
+/** 技能等级：每 40 点经验一级，上限 5。等级只改引擎掌管的乘数，不改叙事。 */
+function skillLevel(xp) {
+  return Math.max(0, Math.min(5, Math.floor((Number(xp) || 0) / 40)))
+}
+
+function skillView(state) {
+  const src = state.skills && typeof state.skills === 'object' ? state.skills : {}
+  const out = {}
+  for (const def of SKILL_DEFS) {
+    const xp = Math.max(0, Math.floor(Number(src[def.id]) || 0))
+    out[def.id] = { xp, level: skillLevel(xp), label: def.label, effect: def.effect }
+  }
+  return out
+}
+
+/** 累积经验。返回是否升级，供日志点一下。 */
+function gainSkill(state, id, amount) {
+  if (!SKILL_DEFS.some((d) => d.id === id)) return false
+  if (!state.skills || typeof state.skills !== 'object') state.skills = { scavenge: 0, combat: 0, craft: 0, social: 0 }
+  const before = skillLevel(state.skills[id])
+  state.skills[id] = Math.max(0, Math.floor(Number(state.skills[id]) || 0) + Math.max(0, Math.floor(amount)))
+  return skillLevel(state.skills[id]) > before
+}
+
+/** 搜刮技能：每级 +6% 掉率（上限仍由 rollScavengePlan 夹到 0.92） */
+function skillLootMod(state) {
+  return 1 + skillLevel(state.skills?.scavenge) * 0.06
+}
+
+function ensureUpgrade(state, name) {
+  if (!state.upgrades || typeof state.upgrades !== 'object') state.upgrades = {}
+  if (!state.upgrades[name]) state.upgrades[name] = { door: 0, fire: 0, bed: 0, storage: 0 }
+  return state.upgrades[name]
+}
+
+function upgradeOf(state, name) {
+  const u = state.upgrades?.[name]
+  return {
+    door: u?.door ? 1 : 0,
+    fire: u?.fire ? 1 : 0,
+    bed: u?.bed ? 1 : 0,
+    storage: u?.storage ? 1 : 0,
+  }
+}
+
+/** 落脚点有效质量：基础质量 + 已装上的加固件（上限 3，睡觉恢复按这个算） */
+function effectiveShelterQuality(state, shelter) {
+  const base = Math.max(1, Math.min(3, Number(shelter?.quality) || 1))
+  const u = upgradeOf(state, shelter?.name)
+  const bonus = (u.door ? 1 : 0) + (u.bed ? 1 : 0)
+  return Math.max(1, Math.min(3, base + (bonus >= 2 ? 1 : 0)))
+}
+
+function shelterView(state) {
+  return (state.shelters || []).map((s) => {
+    const u = upgradeOf(state, s.name)
+    const installed = UPGRADE_SLOTS.filter((slot) => u[slot.id]).map((slot) => slot.label)
+    const next = UPGRADE_SLOTS.filter((slot) => !u[slot.id]).map((slot) => ({
+      id: slot.id,
+      label: slot.label,
+      need: (slot.need || []).map((n) => n.label || n.name),
+      hours: slot.hours,
+      affordable: canAfford(state, slot.need),
+    }))
+    return {
+      name: s.name,
+      quality: Math.max(1, Math.min(3, Number(s.quality) || 1)),
+      effectiveQuality: effectiveShelterQuality(state, s),
+      note: s.note || '',
+      upgrades: u,
+      installed,
+      next,
+    }
+  })
+}
+
+/** 一件物品能不能当这条材料用：分类对上，名字或备注里再命中任一关键词 */
+function itemFitsNeed(item, need) {
+  if (!item || !need) return false
+  if (need.category && item.category !== need.category) return false
+  const keys = arr(need.keys).map((k) => String(k)).filter(Boolean)
+  if (!keys.length) return true
+  const hay = `${item.name || ''}${item.note || ''}`
+  return keys.some((k) => hay.includes(k))
+}
+
+/** 为每条材料挑一件背包物品。同一件不能被两条材料同时用掉。不够返回 null。 */
+function pickMaterials(state, need) {
+  const used = new Map()
+  const picks = []
+  for (const n of need || []) {
+    const qty = Math.max(1, Number(n.qty) || 1)
+    const hit = (state.inventory || []).find((it) => {
+      if (!itemFitsNeed(it, n)) return false
+      const left = (Number(it.qty) || 0) - (used.get(it.name) || 0)
+      return left >= qty
+    })
+    if (!hit) return null
+    used.set(hit.name, (used.get(hit.name) || 0) + qty)
+    picks.push({ name: hit.name, qty, label: n.label || n.name || hit.name })
+  }
+  return picks
+}
+
+function canAfford(state, need) {
+  return Boolean(pickMaterials(state, need))
+}
+
+/** 扣材料。不够则什么都不扣，返回实际扣掉的清单；不够返回 null。 */
+function spendMaterials(state, need) {
+  const picks = pickMaterials(state, need)
+  if (!picks) return null
+  for (const p of picks) {
+    const it = state.inventory.find((i) => i.name === p.name)
+    if (it) it.qty = (it.qty || 1) - p.qty
+  }
+  pruneInventory(state)
+  return picks
+}
+
+function recipeView(state) {
+  return RECIPES.map((r) => {
+    const picks = pickMaterials(state, r.need)
+    return {
+      id: r.id,
+      name: r.name,
+      category: r.category,
+      note: r.note,
+      hours: r.hours,
+      need: (r.need || []).map((n) => n.label || n.name),
+      using: picks ? picks.map((p) => (p.qty > 1 ? `${p.name}×${p.qty}` : p.name)) : [],
+      affordable: Boolean(picks),
+    }
+  })
+}
+
+function findRecipe(id) {
+  return RECIPES.find((r) => r.id === id) || null
+}
+
+async function generateCraft(state, recipe) {
+  return chatJSON({
+    system: SYSTEM_PROMPT,
+    user: buildCraftPrompt(state, recipe, makeSeed()),
+    config: getConfig(),
+  })
+}
+
+/**
+ * 制作：玩家点选一条配方。
+ * 材料够不够、扣几件、花几小时，全部由引擎结算；模型只写这次动手的过程与意外。
+ * 成品由引擎直接入包，模型不得再发一件同名成品（避免双倍）。
+ */
+export async function craft(id, recipeId) {
+  const state = loadSession(id)
+  if (!state) throw new GameError('存档不存在或已过期', 404)
+  if (state.over) throw new GameError('本局已经结束，请开始新的一局', 400)
+  if (state.usedThisTurn) {
+    throw new GameError(`本回合已经处理过「${state.usedThisTurn}」了，推进剧情后才能再制作`, 400)
+  }
+  const recipe = findRecipe(recipeId)
+  if (!recipe) throw new GameError('没有这条配方', 400)
+  const spent = spendMaterials(state, recipe.need)
+  if (!spent) throw new GameError('材料不够', 400)
+
+  advanceClock(state, recipe.hours)
+  const craftLv = skillLevel(state.skills?.craft)
+  state.stats.stamina = clamp(state.stats.stamina - Math.max(2, 6 - craftLv))
+  state.usedThisTurn = recipe.name
+  state.craftCount = (state.craftCount || 0) + 1
+  const leveled = gainSkill(state, 'craft', 12)
+
+  // 成品先入包：模型漏写也不会让材料凭空消失
+  applyStateChanges(state, {
+    inventoryAdd: [{ name: recipe.name, category: recipe.category, qty: 1, note: recipe.note, tradable: true }],
+  })
+
+  const raw = await generateCraft(state, { ...recipe, spent })
+  // 去掉模型重复发放的同名成品，其余结算照常（伤、声响、引来的人）
+  const extra = arr(raw.inventoryAdd).filter((it) => !it || String(it.name) !== recipe.name)
+  applyStateChanges(state, { ...raw, inventoryAdd: extra })
+  applyQuests(state, raw)
+
+  const previousChoices = state.lastEvent?.choices || []
+  const freshChoices = normalizeChoices(raw.choices, state)
+  const nextChoices = raw.isEnding ? [] : freshChoices.length ? freshChoices : previousChoices
+  let text = String(raw.narrative || raw.narration || '').trim() || `你把材料拼成了${recipe.name}。`
+  if (leveled) text += `\n（你的手比上次稳。制作升到了 ${skillLevel(state.skills.craft)} 级。）`
+  const grounded = groundChoices(text, nextChoices, state)
+  state.lastEvent = { text: grounded.text, choices: grounded.choices }
+  state.log.push({
+    turn: state.turn,
+    kind: 'craft',
+    text: state.lastEvent.text,
+    chosen: `（制作 ${recipe.name}）`,
+    day: state.day,
+    time: formatClock(state.minute),
+    weather: weatherLogLabel(state),
+    used: recipe.name,
+    loot: [recipe.name],
+  })
+  applyMemoryAndTimeline(state, raw)
+
+  if (raw.isEnding) {
+    state.over = true
+    state.ending = {
+      title: String(raw.endingTitle || '终局').slice(0, 30),
+      text: String(raw.endingText || text).slice(0, 2000),
+    }
+  }
+  const cause = pendingEndingCause(state)
+  if (cause) await forceEnding(state, cause)
+
+  state.updatedAt = Date.now()
+  saveSession(state)
+  return publicState(state)
+}
+
+async function generateTrade(state, offer, partner) {
+  return chatJSON({
+    system: SYSTEM_PROMPT,
+    user: buildTradePrompt(state, offer, partner, makeSeed()),
+    config: getConfig(),
+  })
+}
+
+/**
+ * 开一笔交易：引擎按背包里标了「可交换」的东西，配一条具体回报。
+ * 报价先挂在存档上，玩家点「成交」才真正换手。
+ */
+export async function offerTrade(id, partnerName) {
+  const state = loadSession(id)
+  if (!state) throw new GameError('存档不存在或已过期', 404)
+  if (state.over) throw new GameError('本局已经结束，请开始新的一局', 400)
+
+  const partner = String(partnerName || '').trim().slice(0, 24)
+  const tradables = (state.inventory || []).filter((i) => i.tradable || i.category === '食物' || i.category === '药品' || i.category === '弹药')
+  if (!tradables.length) throw new GameError('背包里没有能拿去换的东西', 400)
+  const give = tradables[Math.floor(Math.random() * tradables.length)]
+  const returns = [
+    { name: '半盒压缩饼干', category: '食物', note: '对方用吃的换' },
+    { name: '一瓶浑浊的水', category: '饮水', note: '看着能喝' },
+    { name: '三发受潮的子弹', category: '弹药', note: '口径对不上也先留着' },
+    { name: '用过的绷带', category: '药品', note: '还能再缠一次' },
+    { name: '一张手绘的路口图', category: '杂物', note: '上面画着一条绕路' },
+  ]
+  // 交涉等级越高，越不容易换到最差的那档
+  const social = skillLevel(state.skills?.social)
+  const pool = returns.slice(0, Math.min(returns.length, 3 + social))
+  const got = pool[Math.floor(Math.random() * pool.length)]
+  state.tradeOffer = {
+    id: uuid(),
+    partner: partner || '路过的人',
+    give: { name: give.name, qty: 1 },
+    get: { name: got.name, category: got.category, qty: 1, note: got.note, tradable: true },
+    intel: social >= 2,
+  }
+  state.updatedAt = Date.now()
+  saveSession(state)
+  return publicState(state)
+}
+
+/** 成交：引擎扣一件、发一件，模型写对方的眼神和这笔账以后怎么回来。 */
+export async function acceptTrade(id) {
+  const state = loadSession(id)
+  if (!state) throw new GameError('存档不存在或已过期', 404)
+  if (state.over) throw new GameError('本局已经结束，请开始新的一局', 400)
+  const offer = state.tradeOffer
+  if (!offer?.give?.name || !offer?.get?.name) throw new GameError('眼前没有一笔待成交的交易', 400)
+  if (state.usedThisTurn) {
+    throw new GameError(`本回合已经处理过「${state.usedThisTurn}」了，推进剧情后才能再交易`, 400)
+  }
+  if (!spendMaterials(state, [{ name: offer.give.name, qty: offer.give.qty || 1, keys: [offer.give.name] }])) {
+    state.tradeOffer = null
+    saveSession(state)
+    throw new GameError('你要换出去的东西已经不在背包里', 400)
+  }
+
+  advanceClock(state, 0.5)
+  state.stats.stamina = clamp(state.stats.stamina - 3)
+  state.usedThisTurn = offer.give.name
+  state.tradeCount = (state.tradeCount || 0) + 1
+  const leveled = gainSkill(state, 'social', 10)
+  applyStateChanges(state, { inventoryAdd: [offer.get] })
+  if (offer.intel) {
+    const mark = `交易情报·${offer.partner}`
+    if (!state.flags.includes(mark)) state.flags.push(mark)
+  }
+
+  const raw = await generateTrade(state, offer, offer.partner)
+  applyStateChanges(state, { ...raw, inventoryRemove: arr(raw.inventoryRemove).filter((n) => String(n) !== offer.give.name) })
+  applyQuests(state, raw)
+
+  const previousChoices = state.lastEvent?.choices || []
+  const freshChoices = normalizeChoices(raw.choices, state)
+  const nextChoices = raw.isEnding ? [] : freshChoices.length ? freshChoices : previousChoices
+  let text = String(raw.narrative || raw.narration || '').trim() || `你用${offer.give.name}换到了${offer.get.name}。`
+  if (leveled) text += `\n（你看人的眼神稳了一些。交涉升到了 ${skillLevel(state.skills.social)} 级。）`
+  const grounded = groundChoices(text, nextChoices, state)
+  state.lastEvent = { text: grounded.text, choices: grounded.choices }
+  state.log.push({
+    turn: state.turn,
+    kind: 'trade',
+    text: state.lastEvent.text,
+    chosen: `（用 ${offer.give.name} 向 ${offer.partner} 换 ${offer.get.name}）`,
+    day: state.day,
+    time: formatClock(state.minute),
+    weather: weatherLogLabel(state),
+    used: offer.give.name,
+    loot: [offer.get.name],
+    target: offer.partner,
+  })
+  applyMemoryAndTimeline(state, raw)
+  state.tradeOffer = null
+
+  if (raw.isEnding) {
+    state.over = true
+    state.ending = {
+      title: String(raw.endingTitle || '终局').slice(0, 30),
+      text: String(raw.endingText || text).slice(0, 2000),
+    }
+  }
+  const cause = pendingEndingCause(state)
+  if (cause) await forceEnding(state, cause)
+
+  state.updatedAt = Date.now()
+  saveSession(state)
+  return publicState(state)
+}
+
+/** 拒绝报价：不花时间，只把报价清掉。 */
+export function declineTrade(id) {
+  const state = loadSession(id)
+  if (!state) throw new GameError('存档不存在或已过期', 404)
+  state.tradeOffer = null
+  state.updatedAt = Date.now()
+  saveSession(state)
+  return publicState(state)
+}
+
+async function generateUpgrade(state, shelter, slot) {
+  return chatJSON({
+    system: SYSTEM_PROMPT,
+    user: buildUpgradePrompt(state, shelter, slot, makeSeed()),
+    config: getConfig(),
+  })
+}
+
+/**
+ * 加固据点：门 / 火堆 / 床 / 储物，四件各做一次。
+ * 材料与 1 小时由引擎扣；质量上限 3，睡觉恢复跟着有效质量走。
+ */
+export async function upgradeShelter(id, shelterName, slotId) {
+  const state = loadSession(id)
+  if (!state) throw new GameError('存档不存在或已过期', 404)
+  if (state.over) throw new GameError('本局已经结束，请开始新的一局', 400)
+  if (state.usedThisTurn) {
+    throw new GameError(`本回合已经处理过「${state.usedThisTurn}」了，推进剧情后才能再加固`, 400)
+  }
+  const shelter = (state.shelters || []).find((s) => s.name === shelterName)
+  if (!shelter) throw new GameError('还没有这个落脚点', 400)
+  const slot = UPGRADE_SLOTS.find((s) => s.id === slotId)
+  if (!slot) throw new GameError('没有这种加固', 400)
+  const bag = ensureUpgrade(state, shelter.name)
+  if (bag[slot.id]) throw new GameError(`这里已经有${slot.label}了`, 400)
+  const spent = spendMaterials(state, slot.need)
+  if (!spent) throw new GameError('材料不够', 400)
+
+  bag[slot.id] = 1
+  advanceClock(state, slot.hours)
+  state.stats.stamina = clamp(state.stats.stamina - 8)
+  state.usedThisTurn = `${shelter.name}·${slot.label}`
+  const leveled = gainSkill(state, 'craft', 10)
+
+  const raw = await generateUpgrade(state, shelter, { ...slot, spent })
+  applyStateChanges(state, raw)
+  applyQuests(state, raw)
+  // 模型可能把落脚点删掉；删了就连加固一起没了，不再强行加回
+  if ((state.shelters || []).some((s) => s.name === shelter.name)) ensureUpgrade(state, shelter.name)[slot.id] = 1
+
+  const previousChoices = state.lastEvent?.choices || []
+  const freshChoices = normalizeChoices(raw.choices, state)
+  const nextChoices = raw.isEnding ? [] : freshChoices.length ? freshChoices : previousChoices
+  let text =
+    String(raw.narrative || raw.narration || '').trim() ||
+    `你在${shelter.name}装上了${slot.label}。`
+  if (leveled) text += `\n（动手的次数够了。制作升到了 ${skillLevel(state.skills.craft)} 级。）`
+  const grounded = groundChoices(text, nextChoices, state)
+  state.lastEvent = { text: grounded.text, choices: grounded.choices }
+  state.log.push({
+    turn: state.turn,
+    kind: 'upgrade',
+    text: state.lastEvent.text,
+    chosen: `（在 ${shelter.name} 加固：${slot.label}）`,
+    day: state.day,
+    time: formatClock(state.minute),
+    weather: weatherLogLabel(state),
+    used: slot.label,
+    target: shelter.name,
+  })
+  applyMemoryAndTimeline(state, raw)
+
+  if (raw.isEnding) {
+    state.over = true
+    state.ending = {
+      title: String(raw.endingTitle || '终局').slice(0, 30),
+      text: String(raw.endingText || text).slice(0, 2000),
+    }
+  }
   const cause = pendingEndingCause(state)
   if (cause) await forceEnding(state, cause)
 

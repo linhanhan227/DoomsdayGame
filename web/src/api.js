@@ -12,6 +12,11 @@ import {
   sleep as engineSleep,
   useItem,
   giveItem,
+  craft,
+  offerTrade,
+  acceptTrade,
+  declineTrade,
+  upgradeShelter,
   getGame,
   deleteGame,
   latestGame,
@@ -103,6 +108,36 @@ export const api = {
   giveItem: async (id, itemName, targetName) => {
     await ensure()
     return giveItem(id, itemName, targetName)
+  },
+
+  /** 制作：按配方扣材料、入包，模型只写过程 */
+  craft: async (id, recipeId) => {
+    await ensure()
+    return craft(id, recipeId)
+  },
+
+  /** 开一笔交易报价（尚未换手） */
+  offerTrade: async (id, partner) => {
+    await ensure()
+    return offerTrade(id, partner)
+  },
+
+  /** 成交当前报价 */
+  acceptTrade: async (id) => {
+    await ensure()
+    return acceptTrade(id)
+  },
+
+  /** 拒绝当前报价，不花时间 */
+  declineTrade: async (id) => {
+    await ensure()
+    return declineTrade(id)
+  },
+
+  /** 给某个落脚点装上一件加固 */
+  upgradeShelter: async (id, shelterName, slotId) => {
+    await ensure()
+    return upgradeShelter(id, shelterName, slotId)
   },
 
   remove: async (id) => {

@@ -571,6 +571,69 @@ function giveItemPayload(userPrompt) {
   }
 }
 
+/** 离线体验：制作。成品已由引擎入包，这里只回一段动手的描写。 */
+function craftPayload(userPrompt) {
+  const m = String(userPrompt).match(/动手做一件东西：\*\*(.+?)\*\*/)
+  const name = m ? m[1] : '一件东西'
+  return {
+    narrative: `（离线体验）你把材料摊在膝盖上，一件一件对上。做${name}不需要多少手艺，需要的是别让声音传出去。你停下来听了两次，楼道里只有自己的呼吸。做完的时候手指上留着一道新的口子，而那件东西躺在包口，能用。`,
+    stateDelta: { stamina: -2 },
+    conditionsAdd: [],
+    inventoryAdd: [],
+    inventoryRemove: [],
+    flagsAdd: [],
+    choices: [],
+    memory: `离线体验：做成了${name}。`,
+    eventSummary: `做成了${name}`,
+    isEnding: false,
+    _mock: true,
+  }
+}
+
+/** 离线体验：交易成交。换手已由引擎完成。 */
+function tradePayload(userPrompt) {
+  const m = String(userPrompt).match(/把 \*\*(.+?)\*\* 交给了 \*\*(.+?)\*\*，换回 \*\*(.+?)\*\*/)
+  const give = m ? m[1] : '一件东西'
+  const who = m ? m[2] : '对方'
+  const got = m ? m[3] : '另一件东西'
+  return {
+    narrative: `（离线体验）${who}接过${give}的时候没有看你的眼睛。他把${got}推过来，推到一半又停了一下，像是在算这笔账以后还值不值得再找你。最后他还是松了手。你们谁都没有说谢谢。`,
+    stateDelta: { sanity: 1 },
+    inventoryAdd: [],
+    inventoryRemove: [],
+    flagsAdd: [`人情·与${who}换过一次`],
+    choices: [
+      { id: 'A', text: '把换来的东西塞进背包最底下', basis: '东西已经到手，对方还没转身', quest: 'new' },
+      { id: 'B', text: '问他城北现在还能不能过', basis: '他松手之前犹豫过一下', quest: 'main' },
+      { id: 'C', text: '先离开这条街', basis: '这笔交易谁都没说谢谢', quest: 'new' },
+    ],
+    memory: `离线体验：用${give}向${who}换了${got}。`,
+    eventSummary: `和${who}做成一笔交易`,
+    isEnding: false,
+    _mock: true,
+  }
+}
+
+/** 离线体验：据点加固。加固件已由引擎记上。 */
+function upgradePayload(userPrompt) {
+  const m = String(userPrompt).match(/在 \*\*(.+?)\*\* 装上了 \*\*(.+?)\*\*/)
+  const place = m ? m[1] : '落脚点'
+  const what = m ? m[2] : '一件加固'
+  return {
+    narrative: `（离线体验）你在${place}忙了一个钟头，手上的${what}终于固定住了。做完之后你在门口站了一会儿，听外面有没有人被这阵动静引过来。没有。至少现在没有。`,
+    stateDelta: { stamina: -4 },
+    inventoryAdd: [],
+    inventoryRemove: [],
+    sheltersRemove: [],
+    flagsAdd: [],
+    choices: [],
+    memory: `离线体验：在${place}装上了${what}。`,
+    eventSummary: `${place}多了${what}`,
+    isEnding: false,
+    _mock: true,
+  }
+}
+
 export function mockRespond(userPrompt = '') {
   const isOpening = /【阶段】开局/.test(userPrompt)
   const isEnding = /【触发原因】/.test(userPrompt)
@@ -578,10 +641,16 @@ export function mockRespond(userPrompt = '') {
   const isSleep = /【睡觉地点】/.test(userPrompt)
   const isGiveItem = /（交出物品）/.test(userPrompt)
   const isUseItem = /（使用物品）/.test(userPrompt)
+  const isCraft = /动手做一件东西/.test(userPrompt)
+  const isTrade = /交易成交/.test(userPrompt)
+  const isUpgrade = /加固据点/.test(userPrompt)
 
   if (isEnding) return endingPayload()
   if (isScavenge) return scavengePayload(userPrompt)
   if (isSleep) return sleepPayload(userPrompt)
+  if (isCraft) return craftPayload(userPrompt)
+  if (isTrade) return tradePayload(userPrompt)
+  if (isUpgrade) return upgradePayload(userPrompt)
   if (isGiveItem) return giveItemPayload(userPrompt)
   if (isUseItem) return useItemPayload(userPrompt)
 

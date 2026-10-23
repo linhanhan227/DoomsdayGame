@@ -181,6 +181,77 @@ export default function App() {
     [game, notify],
   )
 
+  const craft = useCallback(
+    async (recipeId) => {
+      if (!game) return
+      setBusy(true)
+      try {
+        const g = await api.craft(game.id, recipeId)
+        setGame(g)
+      } catch (e) {
+        notify(e.message, 'warn')
+      } finally {
+        setBusy(false)
+      }
+    },
+    [game, notify],
+  )
+
+  const offerTrade = useCallback(
+    async (partner) => {
+      if (!game) return
+      setBusy(true)
+      try {
+        const g = await api.offerTrade(game.id, partner)
+        setGame(g)
+      } catch (e) {
+        notify(e.message, 'warn')
+      } finally {
+        setBusy(false)
+      }
+    },
+    [game, notify],
+  )
+
+  const acceptTrade = useCallback(async () => {
+    if (!game) return
+    setBusy(true)
+    try {
+      const g = await api.acceptTrade(game.id)
+      setGame(g)
+    } catch (e) {
+      notify(e.message, 'warn')
+    } finally {
+      setBusy(false)
+    }
+  }, [game, notify])
+
+  const declineTrade = useCallback(async () => {
+    if (!game) return
+    try {
+      const g = await api.declineTrade(game.id)
+      setGame(g)
+    } catch (e) {
+      notify(e.message, 'warn')
+    }
+  }, [game, notify])
+
+  const upgradeShelter = useCallback(
+    async (shelterName, slotId) => {
+      if (!game) return
+      setBusy(true)
+      try {
+        const g = await api.upgradeShelter(game.id, shelterName, slotId)
+        setGame(g)
+      } catch (e) {
+        notify(e.message, 'warn')
+      } finally {
+        setBusy(false)
+      }
+    },
+    [game, notify],
+  )
+
   const giveItem = useCallback(
     async (itemName, targetName) => {
       if (!game) return
@@ -286,6 +357,11 @@ export default function App() {
           onSleep={sleep}
           onUseItem={useItem}
           onGiveItem={giveItem}
+          onCraft={craft}
+          onOfferTrade={offerTrade}
+          onAcceptTrade={acceptTrade}
+          onDeclineTrade={declineTrade}
+          onUpgrade={upgradeShelter}
           onBack={backToMenu}
           onOpenSettings={() => setSettingsOpen(true)}
           onExportDb={exportDb}

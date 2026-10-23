@@ -247,6 +247,15 @@ export function saveSession(state) {
   push('meta', 'questFocus', state.questFocus || { type: 'main', title: '', sinceTurn: 0 }, 0)
   push('meta', 'mainQuestSeq', { v: state.mainQuestSeq || 1 }, 1)
   push('meta', 'spin', { on: !!state.spinSideFromMain, since: state.spinSinceTurn || 0 }, 2)
+  // 制作 / 交易计数、技能经验、待成交的报价，都塞在 meta 里，不改表结构
+  push('meta', 'craftCount', { v: state.craftCount || 0 }, 3)
+  push('meta', 'tradeCount', { v: state.tradeCount || 0 }, 4)
+  push('meta', 'skills', state.skills || { scavenge: 0, combat: 0, craft: 0, social: 0 }, 5)
+  push('meta', 'tradeOffer', state.tradeOffer || null, 6)
+  // 每个落脚点的加固件单独一行，名字就是落脚点名
+  Object.entries(state.upgrades || {}).forEach(([name, u], i) =>
+    push('upgrade', name, { door: u?.door ? 1 : 0, fire: u?.fire ? 1 : 0, bed: u?.bed ? 1 : 0, storage: u?.storage ? 1 : 0 }, i),
+  )
 }
 
 /** 从 SQLite 还原一局完整状态 */
@@ -337,6 +346,24 @@ export function loadSession(id) {
     mainQuestSeq: Number(seqRow?.v) || 1,
     spinSideFromMain: Boolean(spinRow?.on),
     spinSinceTurn: Number(spinRow?.since) || 0,
+    craftCount: Number(meta('craftCount')?.v) || 0,
+    tradeCount: Number(meta('tradeCount')?.v) || 0,
+    skills: (() => {
+      const s = meta('skills') || {}
+      return {
+        scavenge: Number(s.scavenge) || 0,
+        combat: Number(s.combat) || 0,
+        craft: Number(s.craft) || 0,
+        social: Number(s.social) || 0,
+      }
+    })(),
+    tradeOffer: meta('tradeOffer')?.give ? meta('tradeOffer') : null,
+    upgrades: Object.fromEntries(
+      bag('upgrade').map((u) => [
+        u.name,
+        { door: u.door ? 1 : 0, fire: u.fire ? 1 : 0, bed: u.bed ? 1 : 0, storage: u.storage ? 1 : 0 },
+      ]),
+    ),
   }
 }
 

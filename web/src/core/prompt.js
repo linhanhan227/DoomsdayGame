@@ -15,6 +15,120 @@
 export const TARGET_SELF_DEFAULT = '自己'
 export const TARGET_HERE_DEFAULT = '就地使用'
 
+/**
+ * 配方表。材料按「分类 + 关键词」匹配，不要求物品名一字不差——
+ * 模型给的是「破布」还是「一块旧布」，都能当布料用。
+ * keys 任一命中名字或备注即可；qty 是从那一件上扣的数量。
+ */
+export const RECIPES = [
+  {
+    id: 'bandage',
+    name: '绷带',
+    category: '药品',
+    note: '布条撕开再缠紧，能止血，不干净',
+    hours: 0.5,
+    need: [{ label: '布料', category: '衣物', keys: ['布', '衣', '衫', '巾', '袜', '绷'], qty: 1 }],
+  },
+  {
+    id: 'torch',
+    name: '火把',
+    category: '工具',
+    note: '布裹在棍上，点着能照路，也能引来东西',
+    hours: 0.5,
+    need: [
+      { label: '木棍', category: '工具', keys: ['棍', '木', '棒', '杆', '椅腿'], qty: 1 },
+      { label: '布料', category: '衣物', keys: ['布', '衣', '衫', '巾'], qty: 1 },
+    ],
+  },
+  {
+    id: 'molotov',
+    name: '燃烧瓶',
+    category: '武器',
+    note: '瓶子里灌了能烧的东西，扔出去就收不回',
+    hours: 0.5,
+    need: [
+      { label: '玻璃瓶', category: '杂物', keys: ['瓶', '罐'], qty: 1 },
+      { label: '燃料', category: '杂物', keys: ['油', '酒精', '汽油', '燃油'], qty: 1 },
+      { label: '布条', category: '衣物', keys: ['布', '巾', '衣'], qty: 1 },
+    ],
+  },
+  {
+    id: 'splint',
+    name: '夹板',
+    category: '药品',
+    note: '两根硬东西夹住伤处，走起来不那么歪',
+    hours: 1,
+    need: [
+      { label: '硬板', category: '工具', keys: ['板', '棍', '木', '尺'], qty: 1 },
+      { label: '布条', category: '衣物', keys: ['布', '衣', '绳', '带'], qty: 1 },
+    ],
+  },
+  {
+    id: 'spear',
+    name: '长矛',
+    category: '武器',
+    note: '刀绑在杆上，能隔开一步的距离',
+    hours: 1,
+    need: [
+      { label: '刀具', category: '武器', keys: ['刀', '刃', '剪'], qty: 1 },
+      { label: '长杆', category: '工具', keys: ['棍', '杆', '管', '棒'], qty: 1 },
+    ],
+  },
+  {
+    id: 'filter',
+    name: '简易滤水器',
+    category: '工具',
+    note: '布和炭叠在瓶口，水还是要煮',
+    hours: 1,
+    need: [
+      { label: '容器', category: '杂物', keys: ['瓶', '桶', '壶', '罐'], qty: 1 },
+      { label: '滤布', category: '衣物', keys: ['布', '巾', '袜'], qty: 1 },
+    ],
+  },
+]
+
+/** 据点可加固的四件。每件只装一次，材料同样按分类+关键词匹配。 */
+export const UPGRADE_SLOTS = [
+  {
+    id: 'door',
+    label: '加固门',
+    hours: 1,
+    need: [
+      { label: '木板', category: '杂物', keys: ['板', '木', '门'], qty: 1 },
+      { label: '钉子或绳', category: '工具', keys: ['钉', '锤', '绳', '铁丝'], qty: 1 },
+    ],
+  },
+  {
+    id: 'fire',
+    label: '火堆',
+    hours: 1,
+    need: [
+      { label: '燃料', category: '杂物', keys: ['柴', '木', '纸', '油', '炭'], qty: 1 },
+      { label: '引火', category: '工具', keys: ['火', '打火', '火柴', '电'], qty: 1 },
+    ],
+  },
+  {
+    id: 'bed',
+    label: '床铺',
+    hours: 1,
+    need: [{ label: '铺盖', category: '衣物', keys: ['被', '毯', '衣', '垫', '布'], qty: 1 }],
+  },
+  {
+    id: 'storage',
+    label: '储物',
+    hours: 1,
+    need: [{ label: '箱子', category: '杂物', keys: ['箱', '柜', '盒', '袋', '桶'], qty: 1 }],
+  },
+]
+
+/** 四项技能。经验由引擎累加，等级只改引擎掌管的乘数。 */
+export const SKILL_DEFS = [
+  { id: 'scavenge', label: '搜刮', effect: '每级搜刮掉率 +6%' },
+  { id: 'combat', label: '战斗', effect: '每级少受 1 点伤害' },
+  { id: 'craft', label: '制作', effect: '每级抵消 1 点感染增量，制作少耗体力' },
+  { id: 'social', label: '交涉', effect: '等级越高，交易回报越好，2 级起附带一条情报' },
+]
+
 /** 在同行者名单里按名字找人（用于把「对象」翻译成具体处境） */
 function findAlly(state, name) {
   const n = String(name || '').trim()
@@ -889,6 +1003,16 @@ export function compactState(state) {
     已知感染体谱系: (state.mutations || []).map(
       (m) => `${m.name}（${m.traits}）${m.note ? `｜首次出现：${m.note}` : ''}`,
     ),
+    技能: SKILL_DEFS.map((d) => {
+      const xp = Math.max(0, Math.floor(Number(state.skills?.[d.id]) || 0))
+      const lv = Math.min(5, Math.floor(xp / 40))
+      return `${d.label}${lv}级`
+    }),
+    据点加固: (state.shelters || []).map((s) => {
+      const u = state.upgrades?.[s.name] || {}
+      const done = ['door', 'fire', 'bed', 'storage'].filter((k) => u[k]).map((k) => ({ door: '门', fire: '火', bed: '床', storage: '储物' }[k]))
+      return `${s.name}${done.length ? `（已有${done.join('、')}）` : '（尚未加固）'}`
+    }),
     故事记忆: state.memory || '（本局刚刚开始）',
     近期事件脉络: state.timeline.slice(-8),
   }
@@ -1359,4 +1483,74 @@ ${cause}
 - endingTitle：≤12 字，凝练而有余味。
 - endingText：200-450 字，第二人称，冷静克制，收束这一局中出现的具体人物、物品与线索，不要写成空洞的总结陈词。
 严格按 JSON 结构输出，不要任何多余文字。`
+}
+
+/** 制作提示：材料已由引擎扣掉，成品已入包。模型只写动手的过程，以及这次动静引来了什么。 */
+export function buildCraftPrompt(state, recipe, seed) {
+  const spent = (recipe.spent || []).map((p) => (p.qty > 1 ? `${p.name}×${p.qty}` : p.name)).join('、') || '若干材料'
+  return `【命运种子】${seed}
+【回合】第 ${state.turn} 回合 · **制作**
+
+【当前状态快照】
+${JSON.stringify(compactState(state), null, 2)}
+
+【玩家行动】
+主角停下来动手做一件东西：**${recipe.name}**（${recipe.note || ''}）。
+引擎已经扣掉材料：${spent}。成品 **${recipe.name}** 已经放进背包。
+**不要再发一件同名成品，也不要再扣这些材料。** 时间（约 ${recipe.hours} 小时）和体力也已经结算。
+
+【任务】
+写这次制作本身。120-200 字，第二人称。
+- 写出手怎么动、材料怎么变形、做完之后这件东西看起来怎样。
+- 动手会出声、出光、出气味。按当前局势决定要不要因此引来人或尸；引来了就写成一个完整事件，并给出 3-4 个新选项。
+- 没出事时 choices 留空数组，引擎会沿用制作前的选项。
+- 每个新选项带 quest 与 basis。basis 复述正文里已经写到的那一处。
+- 严格按 JSON 结构输出。isEnding 仅在动手直接导致不可逆终局时为 true。
+不要任何多余文字。`
+}
+
+/** 交易提示：东西已经换手。模型写对方的反应，以及这笔账以后怎么回来。 */
+export function buildTradePrompt(state, offer, partner, seed) {
+  return `【命运种子】${seed}
+【回合】第 ${state.turn} 回合 · **交易成交**
+
+【当前状态快照】
+${JSON.stringify(compactState(state), null, 2)}
+
+【玩家行动】
+主角把 **${offer.give.name}** 交给了 **${partner}**，换回 **${offer.get.name}**。
+引擎已经完成换手：交出的不在背包里，换回的已经在背包里。
+**不要再扣 ${offer.give.name}，也不要再发一件 ${offer.get.name}。** 时间与体力已结算。
+${offer.intel ? '这笔交易附带一条情报：用 flagsAdd 记下一句对方随口说出的、和当前主线有关的事实。' : '对方没有多说。不要凭空加情报。'}
+
+【任务】
+写成交的这一刻。120-200 字，第二人称。
+- 写出对方接东西时的手和眼神。他可以反悔、可以记仇、可以多给一句没用的话，但东西已经换完了。
+- 用 flagsAdd 记下这笔人情或这笔仇，标题里带上对方的名字。
+- 给出 3-4 个接下来的选项，每个带 quest 与 basis。至少一个 quest 标 "main"。
+- 严格按 JSON 结构输出。isEnding 仅在这次交涉直接导致不可逆终局时为 true。
+不要任何多余文字。`
+}
+
+/** 据点加固提示：材料已扣，加固件已装上。模型写这一小时里发生了什么。 */
+export function buildUpgradePrompt(state, shelter, slot, seed) {
+  const spent = (slot.spent || []).map((p) => p.name).join('、') || '手头的材料'
+  return `【命运种子】${seed}
+【回合】第 ${state.turn} 回合 · **加固据点**
+
+【当前状态快照】
+${JSON.stringify(compactState(state), null, 2)}
+
+【玩家行动】
+主角在 **${shelter.name}** 装上了 **${slot.label}**。用掉的材料：${spent}。
+引擎已经把这件加固记在这个落脚点上，也已经扣掉材料和约 ${slot.hours} 小时。
+**不要把这个落脚点从 sheltersRemove 里删掉**，除非正文里它当场被毁掉。
+
+【任务】
+写这一小时。120-220 字，第二人称。
+- 写出钉、绑、生火或铺床的具体动作，以及做完之后这里和之前有什么不同。
+- 动静可能把人引过来。引来了就给出 3-4 个新选项；没引来就让 choices 留空数组。
+- 每个新选项带 quest 与 basis。basis 复述正文里已经写到的那一处。
+- 严格按 JSON 结构输出。isEnding 仅在加固直接导致不可逆终局时为 true。
+不要任何多余文字。`
 }

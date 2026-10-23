@@ -870,6 +870,9 @@ label.db-file-label,
 
 /* 睡觉条目的日志样式 */
 .log-entry.kind-sleep .log-chosen { color: #8fb0d8; border-left-color: #3f5c86; }
+.log-entry.kind-craft .log-chosen { color: #c9a36b; border-left-color: #8a6a3a; }
+.log-entry.kind-trade .log-chosen { color: #d7c4a3; border-left-color: #8a7350; }
+.log-entry.kind-upgrade .log-chosen { color: #9db7a2; border-left-color: #4d6a52; }
 .aux-hint { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); font-weight: 400; letter-spacing: 0.04em; }
 
 /* 搜刮条目的日志样式 */

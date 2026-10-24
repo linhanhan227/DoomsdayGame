@@ -563,7 +563,7 @@ function VirusPanel({ game, onClose }) {
         <div className="panel-body">
           {infected && (
             <div className="virus-section">
-              <div className="virus-label">感染状态 · 丧尸病毒</div>
+              <div className="virus-label">感染状态 · K-17</div>
               <div className="s-infection">
                 <div className="stat-bar" style={{ marginTop: 8 }}>
                   <div className="stat-fill" style={{ width: `${game.stats.infection}%` }} />
@@ -592,7 +592,7 @@ function VirusPanel({ game, onClose }) {
 }
 
 /** 顶栏「同行者」弹层：当前同行的人与其状态 */
-function AlliesPanel({ allies, onClose }) {
+function AlliesPanel({ allies, canFeed, busy, onFeed, onClose }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="bag-panel" onClick={(e) => e.stopPropagation()}>
@@ -611,8 +611,15 @@ function AlliesPanel({ allies, onClose }) {
                   <b>{a.name}</b>
                   <span>
                     {a.status}
+                    {a.hunger != null ? ` · 饥饿 ${a.hunger}` : ''}
+                    {a.infection ? ` · 感染 ${a.infection}` : ''}
                     {a.note ? ` · ${a.note}` : ''}
                   </span>
+                  {canFeed && (
+                    <button className="bag-use" disabled={busy} onClick={() => onFeed(a.name)}>
+                      分一口吃的
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -908,7 +915,7 @@ function WorldMap({ game }) {
 }
 
 /** 顶栏「地图」弹层：绘制当前区域地图（非文字地图） */
-function MapPanel({ game, onClose }) {
+function MapPanel({ game, busy, onTravel, onClose }) {
   const nodes = game.mapNodes || []
   const shelters = nodes.filter((n) => n.shelter)
   const trailLen = (game.locationTrail || []).length
@@ -927,7 +934,25 @@ function MapPanel({ game, onClose }) {
         </div>
         <div className="panel-body map-body">
           {nodes.length ? (
-            <WorldMap game={game} />
+            <>
+              <WorldMap game={game} />
+              <div className="chips" style={{ marginTop: 12 }}>
+                {(game.travelTargets || []).map((t) => (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    key={t.name}
+                    disabled={busy}
+                    onClick={() => {
+                      onTravel(t.name)
+                      onClose()
+                    }}
+                    title={`大约 ${t.hours} 小时，消耗 ${t.stamina} 点体力`}
+                  >
+                    前往 {t.name} · {t.hours} 小时
+                  </button>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="empty">地图上还没有任何记录——你尚未探明这片区域的任何地方。</div>
           )}
@@ -945,6 +970,9 @@ export default function GameScreen({
   game,
   busy,
   onChoose,
+  onTravel,
+  onKeep,
+  onFeed,
   onScavenge,
   onSkipScavenge,
   onSleep,
@@ -1013,7 +1041,7 @@ export default function GameScreen({
                 {weatherIcon(game.weather.kind)} {game.weather.label}
               </span>
             )}
-            <span>📍 {game.location}</span>
+            <span className="loc-chip">📍 {game.location}</span>
             {game.protagonist && <span>🧍 {game.protagonist.name}</span>}
             <span>回合 {game.turn}</span>
             {game.mutations?.length > 0 && (
@@ -1238,6 +1266,16 @@ export default function GameScreen({
                       </span>
                     </button>
                   ))}
+                  {game.dueAppointment && (
+                    <button
+                      className="btn btn-scavenge btn-sm"
+                      disabled={busy}
+                      onClick={() => onKeep(game.dueAppointment.id)}
+                    >
+                      赴约 · {game.dueAppointment.who}
+                      <span className="aux-hint">{game.dueAppointment.note}</span>
+                    </button>
+                  )}
                   <div className="aux-actions">
                     {!game.over && (
                       <div className="aux-row">
@@ -1387,12 +1425,22 @@ export default function GameScreen({
         />
       )}
       {panel === 'skills' && <SkillsPanel skills={game.skills} onClose={() => setPanel(null)} />}
-      {panel === 'map' && <MapPanel game={game} onClose={() => setPanel(null)} />}
+      {panel === 'map' && (
+        <MapPanel game={game} busy={busy} onTravel={onTravel} onClose={() => setPanel(null)} />
+      )}
       {panel === 'flags' && <FlagsPanel flags={game.flags} onClose={() => setPanel(null)} />}
       {panel === 'conditions' && (
         <ConditionsPanel conditions={game.conditions} onClose={() => setPanel(null)} />
       )}
-      {panel === 'allies' && <AlliesPanel allies={game.allies} onClose={() => setPanel(null)} />}
+      {panel === 'allies' && (
+        <AlliesPanel
+          allies={game.allies}
+          canFeed={game.canFeed}
+          busy={busy}
+          onFeed={onFeed}
+          onClose={() => setPanel(null)}
+        />
+      )}
       {panel === 'virus' && <VirusPanel game={game} onClose={() => setPanel(null)} />}
 
       {sleepOpen && (

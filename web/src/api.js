@@ -7,6 +7,9 @@ import { getPublicConfig, saveConfig, getConfig, countSessions } from './db/stor
 import {
   newGame,
   choose,
+  travel,
+  keepAppointment,
+  feedAllyAction,
   scavenge,
   skipScavenge,
   sleep as engineSleep,
@@ -81,6 +84,21 @@ export const api = {
   choose: async (id, choiceId) => {
     await ensure()
     return choose(id, choiceId)
+  },
+
+  travel: async (id, dest) => {
+    await ensure()
+    return travel(id, dest)
+  },
+
+  keepAppointment: async (id, appointmentId) => {
+    await ensure()
+    return keepAppointment(id, appointmentId)
+  },
+
+  feedAlly: async (id, name) => {
+    await ensure()
+    return feedAllyAction(id, name)
   },
 
   scavenge: async (id) => {

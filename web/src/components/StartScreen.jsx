@@ -49,7 +49,7 @@ export default function StartScreen({
       <div className="menu-sub">ASHES · REMAIN</div>
 
       <p className="menu-desc">
-        丧尸病毒爆发的第一天，世界还在假装一切正常。
+        K-17 爆发的第一天，世界还在假装一切正常。
         <br />
         这里没有预设的剧本，也没有写好的结局——
         <br />

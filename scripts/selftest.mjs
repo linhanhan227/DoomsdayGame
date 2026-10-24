@@ -12,7 +12,7 @@
  * 环境变量：CDP（默认 http://127.0.0.1:9222）、APP（默认 http://127.0.0.1:4173）
  */
 import { readdirSync } from 'node:fs'
-import { rollEventPlan, formatEventPlan, buildTurnPrompt, buildLinkageChecklist, buildConsumePrompt, OUTPUT_SCHEMA, polishChoiceText, SYSTEM_PROMPT } from '../web/src/core/prompt.js'
+import { rollEventPlan, formatEventPlan, buildTurnPrompt, buildOpeningPrompt, buildScavengePrompt, buildSleepPrompt, buildUseItemPrompt, buildLinkageChecklist, buildConsumePrompt, OUTPUT_SCHEMA, polishChoiceText, SYSTEM_PROMPT } from '../web/src/core/prompt.js'
 
 const BROWSER = process.env.CDP || 'http://127.0.0.1:9222'
 const APP = process.env.APP || 'http://127.0.0.1:4173'
@@ -101,6 +101,9 @@ async function waitForCdp(retries = 40, gapMs = 1000) {
   )
 }
 
+if (process.env.PROMPT_ONLY === '1') {
+  console.log('\n[3] 随机事件骰（仅提示词）')
+} else {
 const ver = await waitForCdp()
 const ws = new WebSocket(ver.webSocketDebuggerUrl)
 let idc = 0
@@ -815,9 +818,10 @@ const LOGIC = `
 })()
 `
 report(await evalJs(LOGIC))
+}
 
 /* ---------------- 随机事件骰（引擎掷骰 → 模型填内容） ---------------- */
-console.log('\n[3] 随机事件骰')
+if (process.env.PROMPT_ONLY !== '1') console.log('\n[3] 随机事件骰')
 {
   const rows = []
   const ok3 = (name, pass, extra = '') => rows.push({ name, pass: !!pass, extra: String(extra) })
@@ -1014,6 +1018,53 @@ console.log('\n[3] 随机事件骰')
   ok3('回合提示词包含【本回合联动清单】', /【本回合联动清单】/.test(prompt))
   ok3('回合提示词包含联动铁律与五项检查', /联动铁律（硬性）/.test(prompt) && /至少三项/.test(prompt) && /剧情标记/.test(prompt))
 
+  /* ---- 约束词：与引擎结算方向一致 ---- */
+  ok3('系统提示词有约束优先级', /【约束优先级/.test(SYSTEM_PROMPT))
+  ok3('系统提示词有禁止清单', /【禁止清单/.test(SYSTEM_PROMPT))
+  ok3('系统提示词要求叙事像经历不像结算', /【叙事口吻/.test(SYSTEM_PROMPT) && /像经历，不像结算/.test(SYSTEM_PROMPT))
+  ok3('病毒只叫 K-17', /【世界观 · K-17】/.test(SYSTEM_PROMPT) && /只有一个名字，\*\*K-17\*\*/.test(SYSTEM_PROMPT))
+  ok3('正文禁止点名感染分期', /你处于潜伏期\/发作期/.test(SYSTEM_PROMPT))
+  ok3('记忆接力固定四行', /【记忆接力/.test(SYSTEM_PROMPT) && /人：/.test(SYSTEM_PROMPT) && /未了：/.test(SYSTEM_PROMPT))
+  const cont = buildTurnPrompt(
+    {
+      ...fakeState,
+      memory: '人：老周\n处：便利店柜台，半瓶水\n未了：门没扣上\n账：老周说天亮再谈',
+      lastEvent: { text: '老周的手按在门上。', choices: [{ id: 'A', text: '按住那扇门' }, { id: 'B', text: '去柜台后面' }] },
+    },
+    'A 按住那扇门',
+    'seed-cont',
+    { intensity: 'wave', flavors: ['people'], sideQuest: false, mutation: false, twist: false, mislead: 'low', focus: { type: 'main', title: '寻妹' } },
+  )
+  ok3('回合提示词带上没选的选项', /没选的那几条本回合不要发生/.test(cont) && /去柜台后面/.test(cont))
+  ok3('回合提示词要求先接未完成的动作', /先碰到它/.test(cont))
+  ok3('饥饿口渴越高越糟', /越高越糟/.test(SYSTEM_PROMPT) && /没吃没喝给\*\*正数\*\*/.test(SYSTEM_PROMPT))
+  ok3('进食给饥饿负数', /吃下一餐：hunger -15/.test(SYSTEM_PROMPT))
+  ok3('输出结构同时要求 narration 与 narrative', /"narration"/.test(OUTPUT_SCHEMA) && /"narrative"/.test(OUTPUT_SCHEMA))
+
+  const opening = buildOpeningPrompt('seed-open')
+  ok3('开局提示词给出数值绝对值区间', /hp 62-88/.test(opening) && /hunger 25-55/.test(opening))
+  ok3('开局禁止荒废废墟', /荒废已久的废墟/.test(opening))
+
+  const scav = buildScavengePrompt(
+    { ...fakeState, scavengeSafe: true },
+    1,
+    { maxItems: 0, rate: 0.2, special: { triggered: false, kind: 'chance' } },
+    'seed-s',
+  )
+  ok3('搜刮硬约束禁止重复扣体力', /stamina 的 stateDelta 给 0/.test(scav))
+  ok3('零配额时禁止收入囊中', /收入囊中/.test(scav) && /空数组/.test(scav))
+
+  const sleepP = buildSleepPrompt({ ...fakeState, minute: 23 * 60 }, { name: '就地', quality: 0 }, 7, 'seed-z')
+  ok3('睡眠禁止再写饥饿口渴', /hunger=0，thirst=0/.test(sleepP))
+
+  const useP = buildUseItemPrompt(
+    { ...fakeState, inventory: [{ name: '降压药', category: '药品', qty: 1, fits: '高血压患者' }] },
+    { name: '降压药', category: '药品', qty: 1, fits: '高血压患者' },
+    '自己',
+    'seed-u',
+  )
+  ok3('常规使用要求 choices 为空数组', /常规使用：choices=\[\]/.test(useP))
+
   /* ---- 物品消耗：由玩家点头，而非模型代扣 ---- */
   ok3(
     '输出 schema 声明 consumeRequest 字段',
@@ -1038,6 +1089,11 @@ console.log('\n[3] 随机事件骰')
   }
 
   report(rows)
+}
+
+if (process.env.PROMPT_ONLY === '1') {
+  console.log(`\n\x1b[36m结果：\x1b[0m \x1b[32m${pass} 通过\x1b[0m / \x1b[31m${fail} 失败\x1b[0m\n`)
+  process.exit(fail === 0 ? 0 : 1)
 }
 
 /* ---------------- UI 渲染 ---------------- */

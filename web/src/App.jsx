@@ -33,6 +33,67 @@ export default function App() {
   }, [notify])
 
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('layout') === 'game') {
+      setGame({
+        id: 'layout',
+        turn: 6,
+        day: 4,
+        minute: 1320,
+        clock: '22:00',
+        timeOfDay: '22:00',
+        timePhrase: '夜里 22:00',
+        dayPhase: '夜晚',
+        isNight: true,
+        weather: { kind: 'rain', label: '暴雨', note: '雨大得看不清街对面', remainH: 3 },
+        collapseStage: '失序',
+        location: '城南 · 市立医院住院部三楼东侧被封死的护士站走廊尽头',
+        protagonist: { name: '林默', background: '', goal: '' },
+        stats: { hp: 64, hunger: 48, thirst: 55, sanity: 41, stamina: 33, infection: 12 },
+        infectionStage: '潜伏',
+        inventory: [
+          { name: '一件被血浸透的旧衬衫', category: '衣物', qty: 1, note: '还能撕', tradable: false },
+          { name: '降压药', category: '药品', qty: 2, note: '只剩两粒', fits: '高血压患者', tradable: true },
+        ],
+        conditions: ['左臂划伤'],
+        allies: [{ name: '老周', status: '同行', note: '腿有点瘸' }],
+        flags: ['结仇·铁钩帮'],
+        mutations: [],
+        virusGeneration: 1,
+        sheltersDetail: [{ name: '医院值班室', quality: 1, effectiveQuality: 1, note: '门能反锁', upgrades: {}, installed: [], next: [{ id: 'door', label: '加固门', need: ['木板', '钉子或绳'], hours: 1, affordable: false }] }],
+        recipes: [{ id: 'bandage', name: '绷带', category: '药品', note: '布条撕开再缠紧', hours: 0.5, need: ['布料'], using: ['一件被血浸透的旧衬衫'], affordable: true }],
+        tradeOffer: null,
+        canTrade: true,
+        tradePartners: ['老周'],
+        skills: {
+          scavenge: { xp: 12, level: 0, label: '搜刮', effect: '每级搜刮掉率 +6%' },
+          combat: { xp: 0, level: 0, label: '战斗', effect: '每级少受 1 点伤害' },
+          craft: { xp: 40, level: 1, label: '制作', effect: '每级抵消 1 点感染增量' },
+          social: { xp: 0, level: 0, label: '交涉', effect: '等级越高，交易回报越好' },
+        },
+        mainQuest: { title: '寻妹', stage: '刚离开医院' },
+        sideQuests: [{ title: '药房里的敲击声', status: 'active', note: '门后有人' }],
+        mapNodes: [],
+        locationTrail: [],
+        log: [{ turn: 6, kind: 'event', text: '雨顺着破窗灌进来，你把手电压得很低。走廊尽头那扇门还在一下一下地响。', day: 4, time: '22:00', weather: '暴雨' }],
+        narration: '雨顺着破窗灌进来。',
+        choices: [
+          { id: 'A', text: '贴着墙走向那扇还在响的门', basis: '门还在一下一下地响', quest: 'main' },
+          { id: 'B', text: '退回楼梯间，把铁门带上', basis: '身后就是楼梯间', quest: 'new' },
+        ],
+        over: false,
+        canScavenge: true,
+        scavengeSafe: false,
+        unsafeReason: '门后有动静',
+        canSleep: true,
+        sleepPlaces: [{ name: '就地', label: '就地 · 走廊', quality: 0, note: '' }],
+        canUseItem: true,
+        canGiveItem: true,
+        canCraft: true,
+        usedThisTurn: null,
+      })
+      setPhase('playing')
+      return
+    }
     ;(async () => {
       try {
         await api.init() // 初始化 SQLite（加载 WASM + 从 IndexedDB 恢复数据库）
@@ -106,6 +167,51 @@ export default function App() {
       setBusy(false)
     }
   }, [latest, guardReady, notify])
+
+  const travelTo = useCallback(
+    async (dest) => {
+      if (!game) return
+      setBusy(true)
+      try {
+        const g = await api.travel(game.id, dest)
+        setGame(g)
+      } catch (e) {
+        notify(e.message, 'warn')
+      } finally {
+        setBusy(false)
+      }
+    },
+    [game, notify],
+  )
+
+  const keepDate = useCallback(
+    async (appointmentId) => {
+      if (!game) return
+      setBusy(true)
+      try {
+        const g = await api.keepAppointment(game.id, appointmentId)
+        setGame(g)
+      } catch (e) {
+        notify(e.message, 'warn')
+      } finally {
+        setBusy(false)
+      }
+    },
+    [game, notify],
+  )
+
+  const feedAlly = useCallback(
+    async (name) => {
+      if (!game) return
+      try {
+        const g = await api.feedAlly(game.id, name)
+        setGame(g)
+      } catch (e) {
+        notify(e.message, 'warn')
+      }
+    },
+    [game, notify],
+  )
 
   const choose = useCallback(
     async (choiceId) => {
@@ -352,6 +458,9 @@ export default function App() {
           game={game}
           busy={busy}
           onChoose={choose}
+          onTravel={travelTo}
+          onKeep={keepDate}
+          onFeed={feedAlly}
           onScavenge={scavenge}
           onSkipScavenge={skipScavenge}
           onSleep={sleep}

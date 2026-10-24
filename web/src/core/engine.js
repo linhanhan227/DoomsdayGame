@@ -22,6 +22,8 @@ import {
   buildCraftPrompt,
   buildTradePrompt,
   buildUpgradePrompt,
+  buildTravelPrompt,
+  buildKeepPrompt,
   RECIPES,
   UPGRADE_SLOTS,
   SKILL_DEFS,
@@ -42,6 +44,18 @@ import {
   timeOfDayPhrase,
   slotFromLabel,
 } from './prompt.js'
+import {
+  syncWounds,
+  tickWounds,
+  tendWounds,
+  syncAllies,
+  tickAllies,
+  feedAlly,
+  addAppointment,
+  tickAppointments,
+  dueAppointment,
+  travelPlan,
+} from './world.js'
 
 export class GameError extends Error {
   constructor(message, status = 400) {
@@ -111,7 +125,12 @@ function pruneInventory(state) {
  */
 function loadSession(id) {
   const state = loadSessionRaw(id)
-  if (state) pruneInventory(state)
+  if (!state) return state
+  pruneInventory(state)
+  if (!Array.isArray(state.wounds)) state.wounds = []
+  if (!Array.isArray(state.appointments)) state.appointments = []
+  syncWounds(state)
+  syncAllies(state)
   return state
 }
 
@@ -184,6 +203,9 @@ function baseState() {
     upgrades: {},
     // 技能经验：搜刮 / 战斗 / 制作 / 交涉，各自独立累积
     skills: { scavenge: 0, combat: 0, craft: 0, social: 0 },
+    // 伤口计时、同行者饥饱与感染、尚未兑现的约定。旧存档没有这些字段，使用时补。
+    wounds: [],
+    appointments: [],
     over: false,
     ending: null,
   }
@@ -528,6 +550,8 @@ function applyStateChanges(state, raw) {
         name: String(a.name).slice(0, 24),
         status: a.status || '同行',
         note: String(a.note || '').slice(0, 60),
+        hunger: 20,
+        infection: 0,
       })
     }
   }
@@ -575,6 +599,14 @@ function applyStateChanges(state, raw) {
 
   // 最后统一净化：任何把数量写到 <= 0 的路径（含模型用同名 inventoryAdd 覆盖 qty）都在此收口
   pruneInventory(state)
+  syncWounds(state)
+  syncAllies(state)
+  for (const ap of arr(raw.appointmentsAdd)) addAppointment(state, ap)
+  const usedMed = arr(raw.inventoryRemove).some((name) => {
+    const n = String(name || '')
+    return /绷带|纱布|药|消毒/.test(n)
+  })
+  if (usedMed) tendWounds(state)
 }
 
 /* ------------------------------ 昼夜时钟（24 小时制） ------------------------------ */
@@ -599,6 +631,7 @@ function advanceHours(state, hours) {
   state.minute = normMinute(total)
 
   const afterHour = Math.floor(state.minute / 60)
+  applyWorldHours(state, h)
 
   // 天气递变：跨日必定重抽；同一日内每越过整点有机会自然转变
   if (state.day !== beforeDay) {
@@ -607,6 +640,32 @@ function advanceHours(state, hours) {
     state.weather = weatherDrift(state, afterHour - beforeHour)
   }
   return addMin / MIN_PER_HOUR
+}
+
+function travelTargets(state) {
+  return (state.mapNodes || [])
+    .filter((n) => n && n.name && n.name !== state.location)
+    .map((n) => {
+      const plan = travelPlan(state, n.name, isNightMinute(state.minute))
+      return plan ? { name: n.name, hours: plan.hours, stamina: plan.stamina } : null
+    })
+    .filter(Boolean)
+}
+
+/** 时间一走，伤口和同行者就跟着变。约定过期也在这里收。 */
+function applyWorldHours(state, hours) {
+  const wound = tickWounds(state, hours)
+  const people = tickAllies(state, hours)
+  const missed = tickAppointments(state)
+  if (wound.hp) state.stats.hp = clamp(state.stats.hp + wound.hp)
+  if (wound.infection) state.stats.infection = clamp(state.stats.infection + wound.infection)
+  const lines = [...wound.notes, ...people.notes]
+  for (const a of missed) lines.push(`你错过了和${a.who}的约定`)
+  if (!lines.length) return
+  if (!Array.isArray(state.flags)) state.flags = []
+  const line = lines.slice(0, 2).join('，').slice(0, 50)
+  if (!state.flags.includes(line)) state.flags.push(line)
+  if (state.flags.length > 24) state.flags = state.flags.slice(-24)
 }
 
 /** 玩家行动的时间代价：模型给的 timeCostHours（0-6 小时） */
@@ -1308,7 +1367,7 @@ function applyEvent(state, raw, choiceText) {
 function pendingEndingCause(state) {
   if (state.over) return null
   if (state.stats.infection >= 100) {
-    return '主角体内的丧尸病毒完成了尸化，脑干被接管，自我意识彻底消散——他成为了自己曾拼命逃离的东西：一只丧尸。'
+    return '主角体内的 K-17 走完了最后一段，脑干被接管，自我意识彻底消散——他成为了自己曾拼命逃离的东西：一只丧尸。'
   }
   if (state.stats.hp <= 0) return '主角的生命值降至 0，伤势/失血/感染夺走了他的生命。'
   if (state.stats.sanity <= 0) return '主角的精神值降至 0，理智彻底崩溃。'
@@ -1468,6 +1527,10 @@ export function publicState(state) {
     tradeOffer: state.tradeOffer || null,
     canTrade: !state.over && !state.usedThisTurn && (state.inventory || []).some((i) => i && (i.tradable || i.category === '食物' || i.category === '药品' || i.category === '弹药')),
     tradePartners: state.allies.map((a) => a.name).filter(Boolean),
+    appointments: (state.appointments || []).filter((a) => a.status !== 'kept').slice(-3),
+    dueAppointment: dueAppointment(state),
+    travelTargets: travelTargets(state),
+    canFeed: !state.over && (state.inventory || []).some((i) => i && i.category === '食物' && Number(i.qty) > 0) && (state.allies || []).length > 0,
     skills: skillView(state),
     craftCount: state.craftCount || 0,
     tradeCount: state.tradeCount || 0,
@@ -2363,6 +2426,117 @@ export function getGame(id) {
   const state = loadSession(id)
   if (!state) throw new GameError('存档不存在或已过期', 404)
   return publicState(state)
+}
+
+/** 在已探明的地点之间赶路。耗时和体力由距离决定，模型只写这一路。 */
+export async function travel(id, destName) {
+  const state = loadSession(id)
+  if (!state) throw new GameError('存档不存在或已过期', 404)
+  if (state.over) throw new GameError('本局已经结束，请开始新的一局', 400)
+  const plan = travelPlan(state, destName, isNightMinute(state.minute))
+  if (!plan) throw new GameError('这个地点还不在地图上，或者你已经在那里', 400)
+  const from = state.location
+  advanceClock(state, plan.hours)
+  state.stats.stamina = clamp(state.stats.stamina - plan.stamina)
+  state.location = plan.dest
+  recordLocation(state, plan.dest)
+  state.usedThisTurn = null
+  const raw = await chatJSON({
+    system: SYSTEM_PROMPT,
+    user: buildTravelPrompt(state, from, plan, makeSeed()),
+    config: getConfig(),
+  })
+  applyStateChanges(state, raw)
+  applyQuests(state, raw)
+  applyScavengeSafety(state, raw)
+  let text = String(raw.narration || raw.narrative || '').trim()
+  if (!text) text = `你从${from}走到了${plan.dest}。脚是酸的，天色也和出发时不一样了。`
+  const choices = normalizeChoices(raw.choices, state)
+  const grounded = groundChoices(text, choices, state)
+  state.lastEvent = { text: grounded.text, choices: grounded.choices }
+  state.log.push({
+    turn: state.turn,
+    kind: 'travel',
+    text: grounded.text,
+    chosen: `（赶往 ${plan.dest}）`,
+    day: state.day,
+    time: formatClock(state.minute),
+    weather: weatherLogLabel(state),
+  })
+  applyMemoryAndTimeline(state, raw)
+  const cause = pendingEndingCause(state)
+  if (cause) await forceEnding(state, cause)
+  state.updatedAt = Date.now()
+  saveSession(state)
+  return publicState(state)
+}
+
+/** 赴约。人还在不在由模型写，约定本身由引擎标成已赴。 */
+export async function keepAppointment(id, appointmentId) {
+  const state = loadSession(id)
+  if (!state) throw new GameError('存档不存在或已过期', 404)
+  if (state.over) throw new GameError('本局已经结束，请开始新的一局', 400)
+  const item = (state.appointments || []).find((a) => a.id === appointmentId && a.status === 'open')
+  if (!item) throw new GameError('这笔约定已经不在了', 400)
+  if (absDue(state, item) > 0) throw new GameError('还没到约定的时间', 400)
+  item.status = 'kept'
+  advanceClock(state, 0.5)
+  state.usedThisTurn = null
+  const raw = await chatJSON({
+    system: SYSTEM_PROMPT,
+    user: buildKeepPrompt(state, item, makeSeed()),
+    config: getConfig(),
+  })
+  applyStateChanges(state, raw)
+  applyQuests(state, raw)
+  applyScavengeSafety(state, raw)
+  let text = String(raw.narration || raw.narrative || '').trim()
+  if (!text) text = `你按约定去找${item.who}。`
+  const choices = normalizeChoices(raw.choices, state)
+  const grounded = groundChoices(text, choices, state)
+  state.lastEvent = { text: grounded.text, choices: grounded.choices }
+  state.log.push({
+    turn: state.turn,
+    kind: 'keep',
+    text: grounded.text,
+    chosen: `（赴约 ${item.who}）`,
+    day: state.day,
+    time: formatClock(state.minute),
+    weather: weatherLogLabel(state),
+  })
+  applyMemoryAndTimeline(state, raw)
+  const cause = pendingEndingCause(state)
+  if (cause) await forceEnding(state, cause)
+  state.updatedAt = Date.now()
+  saveSession(state)
+  return publicState(state)
+}
+
+/** 把一份食物分给同行者。不另开一场，只改他的饥饿。 */
+export function feedAllyAction(id, name) {
+  const state = loadSession(id)
+  if (!state) throw new GameError('存档不存在或已过期', 404)
+  if (state.over) throw new GameError('本局已经结束，请开始新的一局', 400)
+  const result = feedAlly(state, name)
+  if (!result.ok) throw new GameError(result.reason, 400)
+  pruneInventory(state)
+  state.log.push({
+    turn: state.turn,
+    kind: 'feed',
+    text: `你把${result.food}分给了${name}。他吃得很急，没怎么看你。`,
+    chosen: `（分食 ${name}）`,
+    day: state.day,
+    time: formatClock(state.minute),
+    weather: weatherLogLabel(state),
+  })
+  state.updatedAt = Date.now()
+  saveSession(state)
+  return publicState(state)
+}
+
+function absDue(state, item) {
+  const now = (Math.max(1, state.day) - 1) * MIN_PER_DAY + normMinute(state.minute)
+  return Math.max(0, Number(item.due) - now)
 }
 
 export function deleteGame(id) {

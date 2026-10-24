@@ -644,8 +644,40 @@ export function mockRespond(userPrompt = '') {
   const isCraft = /动手做一件东西/.test(userPrompt)
   const isTrade = /交易成交/.test(userPrompt)
   const isUpgrade = /加固据点/.test(userPrompt)
+  const isTravel = /【回合】[\s\S]{0,40}赶路/.test(userPrompt)
+  const isKeep = /【回合】[\s\S]{0,40}赴约/.test(userPrompt)
 
   if (isEnding) return endingPayload()
+  if (isTravel) {
+    return {
+      narration: '（离线体验）你顺着积水走完了这段路。到达的时候，裤脚是湿的，刚才那个地方的灯已经看不见了。',
+      narrative: '（离线体验）你顺着积水走完了这段路。到达的时候，裤脚是湿的，刚才那个地方的灯已经看不见了。',
+      stateDelta: {},
+      choices: [
+        { id: 'A', text: '先在门口听一听里面', basis: '门就在你面前', quest: 'main' },
+        { id: 'B', text: '绕到这栋楼的后面', basis: '楼的侧面还有一条窄道', quest: 'new' },
+        { id: 'C', text: '在台阶上把鞋里的水倒掉', basis: '鞋里灌进了积水', quest: 'new' },
+      ],
+      memory: '人：独自\n处：刚到的门口\n未了：门还没推\n账：无',
+      eventSummary: '赶到了下一个地点，门还没推',
+      isEnding: false,
+    }
+  }
+  if (isKeep) {
+    return {
+      narration: '（离线体验）约定的地方只剩一张被坐过的塑料椅。椅面上有一点还没干的水印，人已经不在了。',
+      narrative: '（离线体验）约定的地方只剩一张被坐过的塑料椅。椅面上有一点还没干的水印，人已经不在了。',
+      stateDelta: { sanity: -4 },
+      choices: [
+        { id: 'A', text: '在椅子旁边再等一会儿', basis: '椅子上的水印还没干', quest: 'main' },
+        { id: 'B', text: '把椅子翻过来看看', basis: '这张塑料椅是这里唯一被动过的东西', quest: 'new' },
+        { id: 'C', text: '离开这个空着的地方', basis: '约定的人已经不在椅子上', quest: 'new' },
+      ],
+      memory: '人：独自\n处：约定地点的塑料椅\n未了：人没等到\n账：无',
+      eventSummary: '赴约时人已经离开',
+      isEnding: false,
+    }
+  }
   if (isScavenge) return scavengePayload(userPrompt)
   if (isSleep) return sleepPayload(userPrompt)
   if (isCraft) return craftPayload(userPrompt)
@@ -736,6 +768,7 @@ export function mockRespond(userPrompt = '') {
     alliesUpdate: [],
     alliesRemove: [],
     flagsAdd: [],
+    appointmentsAdd: turnCount === 3 ? [{ who: '老周', note: '天亮在后门等', inHours: 6 }] : [],
     mutationsAdd:
       turnCount === 3
         ? [

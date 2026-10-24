@@ -10,6 +10,7 @@ import {
   travel,
   keepAppointment,
   feedAllyAction,
+  dropItemAction,
   scavenge,
   skipScavenge,
   sleep as engineSleep,
@@ -99,6 +100,11 @@ export const api = {
   feedAlly: async (id, name) => {
     await ensure()
     return feedAllyAction(id, name)
+  },
+
+  dropItem: async (id, name) => {
+    await ensure()
+    return dropItemAction(id, name)
   },
 
   scavenge: async (id) => {

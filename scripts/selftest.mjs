@@ -1023,6 +1023,8 @@ if (process.env.PROMPT_ONLY !== '1') console.log('\n[3] 随机事件骰')
   ok3('系统提示词有禁止清单', /【禁止清单/.test(SYSTEM_PROMPT))
   ok3('系统提示词要求叙事像经历不像结算', /【叙事口吻/.test(SYSTEM_PROMPT) && /像经历，不像结算/.test(SYSTEM_PROMPT))
   ok3('病毒只叫 K-17', /【世界观 · K-17】/.test(SYSTEM_PROMPT) && /只有一个名字，\*\*K-17\*\*/.test(SYSTEM_PROMPT))
+  ok3('声响和负重写进了快照规则', /快照里的「声响」/.test(prompt) && /快照写着超重/.test(prompt))
+  ok3('上一局的死法只作为现场痕迹', /上一局：/.test(buildOpeningPrompt('seed')) && /不要让那个死者复活/.test(buildOpeningPrompt('seed')))
   ok3('正文禁止点名感染分期', /你处于潜伏期\/发作期/.test(SYSTEM_PROMPT))
   ok3('记忆接力固定四行', /【记忆接力/.test(SYSTEM_PROMPT) && /人：/.test(SYSTEM_PROMPT) && /未了：/.test(SYSTEM_PROMPT))
   const cont = buildTurnPrompt(

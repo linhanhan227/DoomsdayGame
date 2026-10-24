@@ -200,6 +200,19 @@ export default function App() {
     [game, notify],
   )
 
+  const dropItem = useCallback(
+    async (name) => {
+      if (!game) return
+      try {
+        const g = await api.dropItem(game.id, name)
+        setGame(g)
+      } catch (e) {
+        notify(e.message, 'warn')
+      }
+    },
+    [game, notify],
+  )
+
   const feedAlly = useCallback(
     async (name) => {
       if (!game) return
@@ -461,6 +474,7 @@ export default function App() {
           onTravel={travelTo}
           onKeep={keepDate}
           onFeed={feedAlly}
+          onDrop={dropItem}
           onScavenge={scavenge}
           onSkipScavenge={skipScavenge}
           onSleep={sleep}

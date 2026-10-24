@@ -19,7 +19,7 @@ const DEFAULTS = {
   baseUrl: '',
   apiKey: '',
   model: '',
-  temperature: 1.05,
+  temperature: 1,
   maxTokens: 2400,
   timeoutMs: 90000,
   // 跨域中转：'off' 直连（默认） | 'same' 本站 /api/cors（需带服务端的部署） |
@@ -44,7 +44,7 @@ function readSettings() {
 /** 完整配置（含明文 apiKey，仅在内存与 SQLite 中使用） */
 export function getConfig() {
   const cfg = { ...DEFAULTS, ...readSettings() }
-  cfg.temperature = Number(cfg.temperature) || DEFAULTS.temperature
+  cfg.temperature = Math.max(0, Math.min(1, Number(cfg.temperature) || DEFAULTS.temperature))
   cfg.maxTokens = Number(cfg.maxTokens) || DEFAULTS.maxTokens
   cfg.timeoutMs = Number(cfg.timeoutMs) || DEFAULTS.timeoutMs
   cfg.baseUrl = String(cfg.baseUrl || '').trim().replace(/\/+$/, '')
@@ -87,7 +87,7 @@ export function saveConfig(patch = {}) {
   if (patch.customName !== undefined) next.customName = String(patch.customName).trim().slice(0, 30)
   if (patch.baseUrl !== undefined) next.baseUrl = String(patch.baseUrl).trim().replace(/\/+$/, '')
   if (patch.model !== undefined) next.model = String(patch.model).trim()
-  if (patch.temperature !== undefined) next.temperature = Number(patch.temperature)
+  if (patch.temperature !== undefined) next.temperature = Math.max(0, Math.min(1, Number(patch.temperature) || 0))
   if (patch.maxTokens !== undefined) next.maxTokens = Number(patch.maxTokens)
   if (patch.corsProxy !== undefined) next.corsProxy = String(patch.corsProxy).trim()
   if (patch.corsProxyCustom !== undefined) next.corsProxyCustom = String(patch.corsProxyCustom).trim()
@@ -221,7 +221,9 @@ export function saveSession(state) {
     ),
   )
   ;(state.conditions || []).forEach((c, i) => push('condition', c, {}, i))
-  ;(state.allies || []).forEach((a, i) => push('ally', a.name, { status: a.status, note: a.note }, i))
+  ;(state.allies || []).forEach((a, i) =>
+    push('ally', a.name, { status: a.status, note: a.note, hunger: a.hunger ?? 20, infection: a.infection ?? 0 }, i),
+  )
   ;(state.flags || []).forEach((f, i) => push('flag', f, {}, i))
   ;(state.mutations || []).forEach((m, i) => push('mutation', m.name, { traits: m.traits, note: m.note }, i))
   ;(state.shelters || []).forEach((s, i) =>
@@ -252,6 +254,11 @@ export function saveSession(state) {
   push('meta', 'tradeCount', { v: state.tradeCount || 0 }, 4)
   push('meta', 'skills', state.skills || { scavenge: 0, combat: 0, craft: 0, social: 0 }, 5)
   push('meta', 'tradeOffer', state.tradeOffer || null, 6)
+  push('meta', 'noise', { v: Math.max(0, Math.round(Number(state.noise) || 0)) }, 7)
+  ;(state.wounds || []).forEach((w, i) => push('wound', w.name, { hours: w.hours || 0, tended: !!w.tended }, i))
+  ;(state.appointments || []).forEach((a, i) =>
+    push('appointment', a.id || a.who, { who: a.who, note: a.note, due: a.due, status: a.status || 'open' }, i),
+  )
   // 每个落脚点的加固件单独一行，名字就是落脚点名
   Object.entries(state.upgrades || {}).forEach(([name, u], i) =>
     push('upgrade', name, { door: u?.door ? 1 : 0, fire: u?.fire ? 1 : 0, bed: u?.bed ? 1 : 0, storage: u?.storage ? 1 : 0 }, i),
@@ -358,6 +365,15 @@ export function loadSession(id) {
       }
     })(),
     tradeOffer: meta('tradeOffer')?.give ? meta('tradeOffer') : null,
+    noise: Math.max(0, Math.round(Number(meta('noise')?.v) || 0)),
+    wounds: bag('wound').map((w) => ({ name: w.name, hours: Number(w.hours) || 0, tended: !!w.tended })),
+    appointments: bag('appointment').map((a) => ({
+      id: a.name,
+      who: a.who || '',
+      note: a.note || '',
+      due: Number(a.due) || 0,
+      status: a.status || 'open',
+    })),
     upgrades: Object.fromEntries(
       bag('upgrade').map((u) => [
         u.name,

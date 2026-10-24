@@ -7,7 +7,7 @@
  * 关键点：引擎从不把逐轮对话历史发给模型。每回合只发送
  * 「有界状态快照 + 上一事件 + 玩家选择」，因此 prompt 体积恒定。
  */
-import { getConfig, saveSession, loadSession as loadSessionRaw, latestSession, deleteSession } from '../db/store.js'
+import { getConfig, saveConfig, saveSession, loadSession as loadSessionRaw, latestSession, deleteSession } from '../db/store.js'
 import { chatJSON } from './llm.js'
 import {
   SYSTEM_PROMPT,
@@ -55,6 +55,14 @@ import {
   tickAppointments,
   dueAppointment,
   travelPlan,
+  carryOf,
+  dropItem,
+  noiseOf,
+  addNoise,
+  tickNoise,
+  noiseLine,
+  burnFires,
+  rememberDeath,
 } from './world.js'
 
 export class GameError extends Error {
@@ -129,6 +137,7 @@ function loadSession(id) {
   pruneInventory(state)
   if (!Array.isArray(state.wounds)) state.wounds = []
   if (!Array.isArray(state.appointments)) state.appointments = []
+  if (!Number.isFinite(Number(state.noise))) state.noise = 0
   syncWounds(state)
   syncAllies(state)
   return state
@@ -206,6 +215,7 @@ function baseState() {
     // 伤口计时、同行者饥饱与感染、尚未兑现的约定。旧存档没有这些字段，使用时补。
     wounds: [],
     appointments: [],
+    noise: 0,
     over: false,
     ending: null,
   }
@@ -518,8 +528,9 @@ function applyStateChanges(state, raw) {
   }
 
   for (const name of arr(raw.inventoryRemove)) {
-    const idx = state.inventory.findIndex((i) => i.name === name)
-    if (idx >= 0) state.inventory.splice(idx, 1)
+    const hit = state.inventory.find((i) => i.name === name)
+    if (!hit) continue
+    hit.qty = (Number(hit.qty) || 1) - 1
   }
   for (const item of arr(raw.inventoryAdd)) {
     const it = normalizeItem(item)
@@ -566,6 +577,8 @@ function applyStateChanges(state, raw) {
         name: String(a.name).slice(0, 24),
         status: a.status || '同行',
         note: String(a.note || '').slice(0, 60),
+        hunger: 20,
+        infection: 0,
       })
     }
   }
@@ -654,6 +667,7 @@ function travelTargets(state) {
 
 /** 时间一走，伤口和同行者就跟着变。约定过期也在这里收。 */
 function applyWorldHours(state, hours) {
+  tickNoise(state, hours)
   const wound = tickWounds(state, hours)
   const people = tickAllies(state, hours)
   const missed = tickAppointments(state)
@@ -1122,6 +1136,11 @@ export async function newGame() {
   const state = baseState()
   const raw = await generateOpening()
   applyOpening(state, raw)
+  const trace = String(getConfig().lastDeath || '').trim()
+  if (trace) {
+    state.flags.push(`上一局：${trace}`.slice(0, 50))
+    saveConfig({ lastDeath: '' })
+  }
   state.updatedAt = Date.now()
   saveSession(state)
   return publicState(state)
@@ -1182,9 +1201,17 @@ export function hoursToDawn(minute) {
 }
 
 /** 睡眠期间的持续消耗由引擎强制结算：睡觉也在饿、也在渴 */
-function applySleepUpkeep(state, hours) {
+function applySleepUpkeep(state, hours, place) {
   state.stats.hunger = clamp(state.stats.hunger - Math.round(hours * 1.5))
   state.stats.thirst = clamp(state.stats.thirst - Math.round(hours * 1.8))
+  const lit = burnFires(state, hours >= 4, spendMaterials)
+  for (const line of lit) {
+    if (!state.flags.includes(line)) state.flags.push(line)
+  }
+  const here = upgradeOf(state, place?.name)
+  if (place?.name !== SLEEP_PLACE_HERE && here.fire) {
+    state.stats.stamina = clamp(state.stats.stamina + 8)
+  }
 }
 
 async function generateSleep(state, place, hours) {
@@ -1215,7 +1242,7 @@ export async function sleep(id, placeName) {
   const hours = hoursToDawn(state.minute)
 
   advanceHours(state, hours)
-  applySleepUpkeep(state, hours)
+  applySleepUpkeep(state, hours, place)
   // 去别处睡 = 一次夜行迁移；就地睡则留在原地
   if (place.name !== SLEEP_PLACE_HERE) {
     state.location = place.name
@@ -1360,6 +1387,7 @@ function applyEvent(state, raw, choiceText) {
       title: String(raw.endingTitle || '终局').slice(0, 30),
       text: String(raw.endingText || raw.narration || '').slice(0, 2000),
     }
+    saveConfig({ lastDeath: rememberDeath(state) })
   }
 }
 
@@ -1386,6 +1414,7 @@ async function forceEnding(state, cause) {
       title: String(raw.endingTitle || '终局').slice(0, 30),
       text: String(raw.endingText || '').slice(0, 2000),
     }
+    saveConfig({ lastDeath: rememberDeath(state) })
   } catch {
     state.over = true
     state.ending =
@@ -1401,6 +1430,7 @@ async function forceEnding(state, cause) {
                 ? '你的视野边缘开始发黑。雨水落在脸上，已经感觉不到冷了。城北的方向还亮着一点微弱的光，但你再也走不到那里。'
                 : '世界在你耳边碎裂成无数噪音。你分不清哪些是真实的脚步，哪些只是自己的心跳。',
           }
+    saveConfig({ lastDeath: rememberDeath(state) })
   }
   state.lastEvent = { text: state.ending.text, choices: [] }
   state.log.push({
@@ -1530,6 +1560,9 @@ export function publicState(state) {
     appointments: (state.appointments || []).filter((a) => a.status !== 'kept').slice(-3),
     dueAppointment: dueAppointment(state),
     travelTargets: travelTargets(state),
+    carry: carryOf(state),
+    noise: Math.round(Number(state.noise) || 0),
+    noiseLabel: noiseLine(state),
     canFeed: !state.over && (state.inventory || []).some((i) => i && i.category === '食物' && Number(i.qty) > 0) && (state.allies || []).length > 0,
     skills: skillView(state),
     craftCount: state.craftCount || 0,
@@ -1739,6 +1772,7 @@ export async function scavenge(id) {
   plan.special = rollScavengeSpecial(state, depth)
 
   gainSkill(state, 'scavenge', 8)
+  addNoise(state, noiseOf('scavenge', '', state.weather?.label))
 
   const raw = await generateScavenge(state, depth, plan)
 
@@ -1856,6 +1890,7 @@ export async function useItem(id, itemName, target) {
   state.useCount = (state.useCount || 0) + 1
   // 武器 / 弹药的使用按「战斗」计经验，其余按「制作」（动手处理一件东西）
   gainSkill(state, item.category === '武器' || item.category === '弹药' ? 'combat' : 'craft', 6)
+  addNoise(state, noiseOf('use', item.name, state.weather?.label))
 
   const raw = await generateUseItem(state, item, who)
 
@@ -1905,6 +1940,7 @@ export async function useItem(id, itemName, target) {
       title: String(raw.endingTitle || '终局').slice(0, 30),
       text: String(raw.endingText || raw.narrative || '').slice(0, 2000),
     }
+    saveConfig({ lastDeath: rememberDeath(state) })
   }
 
   const cause = pendingEndingCause(state)
@@ -1985,6 +2021,7 @@ export async function giveItem(id, itemName, targetName) {
       title: String(raw.endingTitle || '终局').slice(0, 30),
       text: String(raw.endingText || raw.narrative || '').slice(0, 2000),
     }
+    saveConfig({ lastDeath: rememberDeath(state) })
   }
 
   const cause = pendingEndingCause(state)
@@ -2168,6 +2205,7 @@ export async function craft(id, recipeId) {
   state.usedThisTurn = recipe.name
   state.craftCount = (state.craftCount || 0) + 1
   const leveled = gainSkill(state, 'craft', 12)
+  addNoise(state, noiseOf('craft', recipe.name, state.weather?.label))
 
   // 成品先入包：模型漏写也不会让材料凭空消失
   applyStateChanges(state, {
@@ -2206,6 +2244,7 @@ export async function craft(id, recipeId) {
       title: String(raw.endingTitle || '终局').slice(0, 30),
       text: String(raw.endingText || text).slice(0, 2000),
     }
+    saveConfig({ lastDeath: rememberDeath(state) })
   }
   const cause = pendingEndingCause(state)
   if (cause) await forceEnding(state, cause)
@@ -2318,6 +2357,7 @@ export async function acceptTrade(id) {
       title: String(raw.endingTitle || '终局').slice(0, 30),
       text: String(raw.endingText || text).slice(0, 2000),
     }
+    saveConfig({ lastDeath: rememberDeath(state) })
   }
   const cause = pendingEndingCause(state)
   if (cause) await forceEnding(state, cause)
@@ -2366,7 +2406,9 @@ export async function upgradeShelter(id, shelterName, slotId) {
   if (!spent) throw new GameError('材料不够', 400)
 
   bag[slot.id] = 1
+  if (slot.id === 'fire') bag.fuelNights = 1
   advanceClock(state, slot.hours)
+  addNoise(state, noiseOf(slot.id === 'fire' ? 'fire' : 'upgrade', '', state.weather?.label))
   state.stats.stamina = clamp(state.stats.stamina - 8)
   state.usedThisTurn = `${shelter.name}·${slot.label}`
   const leveled = gainSkill(state, 'craft', 10)
@@ -2405,6 +2447,7 @@ export async function upgradeShelter(id, shelterName, slotId) {
       title: String(raw.endingTitle || '终局').slice(0, 30),
       text: String(raw.endingText || text).slice(0, 2000),
     }
+    saveConfig({ lastDeath: rememberDeath(state) })
   }
   const cause = pendingEndingCause(state)
   if (cause) await forceEnding(state, cause)
@@ -2507,6 +2550,29 @@ export async function keepAppointment(id, appointmentId) {
   applyMemoryAndTimeline(state, raw)
   const cause = pendingEndingCause(state)
   if (cause) await forceEnding(state, cause)
+  state.updatedAt = Date.now()
+  saveSession(state)
+  return publicState(state)
+}
+
+/** 扔掉背包里的一件。不花时间，也不另开一场。 */
+export function dropItemAction(id, name) {
+  const state = loadSession(id)
+  if (!state) throw new GameError('存档不存在或已过期', 404)
+  if (state.over) throw new GameError('本局已经结束，请开始新的一局', 400)
+  const result = dropItem(state, name)
+  if (!result.ok) throw new GameError(result.reason, 400)
+  pruneInventory(state)
+  const carry = carryOf(state)
+  state.log.push({
+    turn: state.turn,
+    kind: 'drop',
+    text: `你把${result.name}放下了。现在身上是 ${carry.load}/${carry.cap}。`,
+    chosen: `（丢下 ${result.name}）`,
+    day: state.day,
+    time: formatClock(state.minute),
+    weather: weatherLogLabel(state),
+  })
   state.updatedAt = Date.now()
   saveSession(state)
   return publicState(state)

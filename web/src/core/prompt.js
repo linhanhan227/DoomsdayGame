@@ -1014,6 +1014,15 @@ export function slotFromLabel(label) {
 }
 
 
+function carryView(state) {
+  const load = (state?.inventory || []).reduce((sum, it) => {
+    const qty = Math.max(1, Math.floor(Number(it?.qty) || 1))
+    return sum + (/箱|柜|桶/.test(it?.name || '') ? 2 * qty : qty)
+  }, 0)
+  const cap = 12
+  return { load, cap, over: load > cap }
+}
+
 function appointmentView(state) {
   const now = (Math.max(1, Number(state?.day) || 1) - 1) * 1440 + (Number(state?.minute) || 0)
   return (state?.appointments || [])
@@ -1073,6 +1082,17 @@ export function compactState(state) {
     同行者: state.allies.map(
       (a) => `${a.name}（${a.status}，饥饿${a.hunger ?? 0}，感染${a.infection ?? 0}）${a.note ? `：${a.note}` : ''}`,
     ),
+    负重: (() => {
+      const carry = carryView(state)
+      return `${carry.load}/${carry.cap}${carry.over ? '，超重，赶路更慢' : ''}`
+    })(),
+    声响: (() => {
+      const n = Math.round(Number(state?.noise) || 0)
+      if (n <= 0) return '安静'
+      if (n <= 3) return '有一点动静'
+      if (n <= 6) return '外面听得见'
+      return '很响，会把东西引过来'
+    })(),
     未处理的伤: (state.wounds || []).filter((w) => !w.tended).map((w) => w.name),
     约定: appointmentView(state),
     剧情标记: state.flags,
@@ -1147,7 +1167,8 @@ export function buildOpeningPrompt(seed) {
 "inventory": [{ "name": "", "category": "食物", "qty": 1, "note": "" }],
 "conditions": [],
 "flags": []
-其余字段遵循既定结构。`
+其余字段遵循既定结构。
+若剧情标记里有「上一局：」开头的一行，让它作为现场的一件东西出现一次：墙上的字、一张湿纸条、一件旧外套。不要解释这是上一局，也不要让那个死者复活。`
 }
 
 /**
@@ -1196,6 +1217,8 @@ export function buildTurnPrompt(state, choiceText, seed, plan) {
 - choices：恰好 3 或 4 条；结局时为空数组。每条含 id（A/B/C/D）、text（8-22 字）、basis（≤28 字）、quest。
 - 下列字段没有内容时必须给空数组，不要省略、不要写 null：conditionsAdd、conditionsRemove、inventoryAdd、inventoryRemove、alliesAdd、alliesUpdate、alliesRemove、flagsAdd、sheltersAdd、sheltersRemove、mutationsAdd、sideQuestsAdd、sideQuestsUpdate、appointmentsAdd。
 - 只有正文里有人说出具体时间和地点，才写 appointmentsAdd，一回合最多 1 条。inHours 取 4 到 24。没有约定就给 []。
+- 快照里的「声响」不是数值，是这一带还能不能听见你。很响时，本回合必须有东西循声过来，或者你明确躲开了。安静时不要凭空写「枪声引来了尸群」。
+- 快照写着超重时，赶路和搬东西要在正文里变慢、变喘。不要替玩家把东西扔掉。
 - 不需要玩家交物品时 consumeRequest 给 null。需要时 name 必须与背包某一件 name 逐字相同。
 - 主线未完成：mainQuestUpdate.status="active"，mainQuestNew=null。主线完成：status="done" 且 mainQuestNew 三项都非空。
 
@@ -1451,7 +1474,7 @@ export function buildUseItemPrompt(state, item, target, seed) {
 【回合】第 ${state.turn} 回合 · **使用物品**
 【本段硬约束】
 - timeCostHours=0。不要再扣 stamina（引擎已扣）。
-- inventoryRemove 必须包含且只为了本次使用而包含「${item.name}」。只用掉一部分时：inventoryRemove 不要写它，改为同名 inventoryAdd 且 qty 等于剩余件数（引擎按同名覆盖数量，不会累加这一次）。
+- inventoryRemove 必须包含且只为了本次使用而包含「${item.name}」。它只扣 1 件，不会整叠消失。只用掉一部分时：inventoryRemove 不要写它，改为同名 inventoryAdd 且 setQty 等于剩余件数。
 - 对象不符时 hp 必须为负。对象正是适用对象时，禁止把效果写成「万能回血」。
 - 常规使用：choices=[]。升级为事件时才给 3-4 条新选项，且这些选项的名词必须出自主段 narration，不能靠旧选项。
 

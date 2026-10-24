@@ -19,6 +19,7 @@
  *   默认仍是直连；直连被 CORS 挡掉且本站有 /api/cors 时，会自动改走同源中转一次。
  */
 import { getConfig } from '../db/store.js'
+import { openAIChatUrl } from './openai.js'
 
 /** 内置 CORS 代理。查询参数名固定为 url= */
 export const LOCAL_CORS_API = 'https://cors.io/?url='
@@ -95,41 +96,72 @@ export class LLMError extends Error {
   }
 }
 
-function joinUrl(base, suffix) {
-  return `${String(base).replace(/\/+$/, '')}/${suffix.replace(/^\/+/, '')}`
+function tryParseJSON(s) {
+  try {
+    return JSON.parse(s)
+  } catch {
+    return undefined
+  }
+}
+
+/** 引号外面的弯引号、尾随逗号，以及字符串里没转义的换行，都先收一遍 */
+function loosenJSON(s) {
+  let out = ''
+  let quote = false
+  let escaped = false
+  for (const ch of s) {
+    if (quote) {
+      if (escaped) {
+        out += ch
+        escaped = false
+        continue
+      }
+      if (ch === '\\') {
+        out += ch
+        escaped = true
+        continue
+      }
+      if (ch === '"') quote = false
+      else if (ch === '\n') {
+        out += '\\n'
+        continue
+      } else if (ch === '\r') continue
+      else if (ch === '\t') {
+        out += '\\t'
+        continue
+      }
+      out += ch
+      continue
+    }
+    if (ch === '"') quote = true
+    out += ch === '“' || ch === '”' ? '"' : ch
+  }
+  return out.replace(/,\s*([}\]])/g, '$1')
 }
 
 /** 从模型返回的自由文本中稳健地提取 JSON 对象 */
 export function extractJSON(text) {
   if (!text || typeof text !== 'string') throw new LLMError('模型返回为空')
-  let t = text.trim()
+  let t = text.trim().replace(/^\uFEFF/, '')
   t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
 
-  const tryParse = (s) => {
-    try {
-      return JSON.parse(s)
-    } catch {
-      return undefined
-    }
-  }
-
-  let parsed = tryParse(t)
-  if (parsed !== undefined) return parsed
-
+  const candidates = [t, loosenJSON(t)]
   const start = t.indexOf('{')
   const end = t.lastIndexOf('}')
   if (start !== -1 && end > start) {
     const slice = t.slice(start, end + 1)
-    parsed = tryParse(slice)
-    if (parsed !== undefined) return parsed
-    parsed = tryParse(slice.replace(/,\s*([}\]])/g, '$1'))
-    if (parsed !== undefined) return parsed
+    candidates.push(slice, loosenJSON(slice))
+  }
+
+  for (const s of candidates) {
+    const parsed = tryParseJSON(s)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
   }
   throw new LLMError('模型未返回合法 JSON')
 }
 
 async function rawChat({ config, system, user, temperature, jsonMode }) {
-  const directUrl = joinUrl(config.baseUrl, 'chat/completions')
+  const directUrl = openAIChatUrl(config.baseUrl)
   const configuredUrl = wrapWithCorsProxy(directUrl, config)
   let viaProxy = configuredUrl !== directUrl
 
@@ -139,7 +171,7 @@ async function rawChat({ config, system, user, temperature, jsonMode }) {
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    temperature: temperature ?? config.temperature,
+    temperature: Math.max(0, Math.min(1, Number(temperature ?? config.temperature) || 0)),
     max_tokens: config.maxTokens,
     stream: false,
   }
@@ -252,9 +284,10 @@ export async function chatJSON({ system, user, temperature, config = getConfig()
     const { mockRespond } = await import('./mock.js')
     return mockRespond(user)
   }
+  const ask = (jsonMode) => rawChat({ config, system, user, temperature, jsonMode })
   let content
   try {
-    content = await rawChat({ config, system, user, temperature, jsonMode: true })
+    content = await ask(true)
   } catch (err) {
     const canRetry =
       err instanceof LLMError &&
@@ -262,10 +295,27 @@ export async function chatJSON({ system, user, temperature, config = getConfig()
       err.status >= 400 &&
       err.status < 500 &&
       ![401, 403, 429].includes(err.status)
-    if (canRetry) content = await rawChat({ config, system, user, temperature, jsonMode: false })
-    else throw err
+    if (!canRetry) throw err
+    content = await ask(false)
   }
-  return extractJSON(content)
+  try {
+    return extractJSON(content)
+  } catch (err) {
+    if (!(err instanceof LLMError) || err.status) throw err
+    // 通道通了，但这一次正文不是 JSON。把原文交回去，只要求改成一个对象。
+    const again = await rawChat({
+      config,
+      system: '把用户给的文本改成一个 JSON 对象。不要代码围栏，不要解释。',
+      user: String(content).slice(0, 6000),
+      temperature: 0,
+      jsonMode: false,
+    })
+    try {
+      return extractJSON(again)
+    } catch {
+      throw new LLMError(`模型未返回合法 JSON。原文开头：${String(content).replace(/\s+/g, ' ').slice(0, 80)}`)
+    }
+  }
 }
 
 /** 连通性测试：一次极小的调用 */
@@ -278,7 +328,9 @@ export async function testConnection(config = getConfig()) {
     system: '你是一个连通性测试探针。只回复 JSON。',
     user: '请只回复：{"ok": true}',
     temperature: 0,
-    jsonMode: false,
+    jsonMode: true,
   })
+  const parsed = extractJSON(content)
+  if (parsed.ok !== true) throw new LLMError('通道已连通，但模型没有按 JSON 返回 {"ok": true}')
   return { ok: true, model: config.model, sample: String(content).slice(0, 120) }
 }

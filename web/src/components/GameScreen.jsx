@@ -245,18 +245,20 @@ function groupInventory(inventory = []) {
 }
 
 /** 顶栏「背包」弹层：背包不再常驻侧栏，点顶栏按钮才展开，节约主界面空间 */
-function BagPanel({ game, busy, onPick, onClose }) {
+function BagPanel({ game, busy, onPick, onDrop, onClose }) {
   return (
     <div className="overlay" onClick={onClose}>
       <div className="bag-panel" onClick={(e) => e.stopPropagation()}>
         <div className="panel-head">
           <div className="panel-title">🎒 背包</div>
           <div className="panel-sub">
+            {game.carry ? `负重 ${game.carry.load}/${game.carry.cap}${game.carry.over ? ' · 超重' : ''}` : ''}
+            {game.noiseLabel ? ` · ${game.noiseLabel}` : ''}
             {game.usedThisTurn
-              ? `本回合已处理「${game.usedThisTurn}」，推进剧情后才能再动背包`
+              ? ` · 本回合已处理「${game.usedThisTurn}」`
               : game.inventory.length
-                ? '可「使用」或「交出」一件物品（每回合 1 次）'
-                : '两手空空'}
+                ? ' · 可使用、交出或丢下'
+                : ' · 两手空空'}
           </div>
           <button className="panel-close" onClick={onClose} title="关闭">
             ✕
@@ -303,6 +305,9 @@ function BagPanel({ game, busy, onPick, onClose }) {
                               }
                             >
                               交出
+                            </button>
+                            <button className="bag-give" disabled={busy} onClick={() => onDrop(it.name)}>
+                              丢下
                             </button>
                           </span>
                         </div>
@@ -389,6 +394,7 @@ function ShelterPanel({ game, busy, onUpgrade, onClose }) {
             <div className="bag-group" key={s.name}>
               <div className="bag-cat">{s.name} · 质量 {s.effectiveQuality}</div>
               {s.installed?.length > 0 && <div className="bag-item-note">已有：{s.installed.join('、')}</div>}
+              {s.upgrades?.fire ? <div className="bag-item-note">火堆每过一夜烧一份柴、木、纸、油或炭。烧完就灭。</div> : null}
               {(s.next || []).map((slot) => (
                 <div className="bag-item" key={slot.id}>
                   <div className="bag-item-main">
@@ -973,6 +979,7 @@ export default function GameScreen({
   onTravel,
   onKeep,
   onFeed,
+  onDrop,
   onScavenge,
   onSkipScavenge,
   onSleep,
@@ -1406,7 +1413,7 @@ export default function GameScreen({
       </div>
 
       {panel === 'bag' && (
-        <BagPanel game={game} busy={busy} onPick={setPicker} onClose={() => setPanel(null)} />
+        <BagPanel game={game} busy={busy} onPick={setPicker} onDrop={onDrop} onClose={() => setPanel(null)} />
       )}
       {panel === 'craft' && (
         <CraftPanel game={game} busy={busy} onCraft={(id) => { setPanel(null); onCraft(id) }} onClose={() => setPanel(null)} />

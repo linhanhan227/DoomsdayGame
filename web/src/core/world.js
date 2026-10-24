@@ -168,6 +168,94 @@ export function appointmentLines(state) {
     })
 }
 
+const LOUD_NAME = /枪|开火|瓶|爆|砸|锤|砍|叫|喊|玻璃/
+const QUIET_WEATHER = /雨|雷|雪|雾/
+
+/** 一件物品占多少负重。数量多的小东西按件算，单件大东西按 2。 */
+export function itemWeight(item) {
+  if (!item) return 0
+  const qty = Math.max(1, Math.floor(Number(item.qty) || 1))
+  if (/箱|柜|桶|床|门|柜/.test(item.name || '')) return 2 * qty
+  return qty
+}
+
+export function carryOf(state) {
+  const load = (state?.inventory || []).reduce((sum, it) => sum + itemWeight(it), 0)
+  const cap = 12 + ((state?.upgrades && Object.values(state.upgrades).some((u) => u && u.storage)) ? 4 : 0)
+  return { load, cap, over: load > cap }
+}
+
+export function dropItem(state, name) {
+  const item = (state.inventory || []).find((i) => i && i.name === name)
+  if (!item) return { ok: false, reason: '背包里没有这件东西' }
+  item.qty = (Number(item.qty) || 1) - 1
+  return { ok: true, name: item.name }
+}
+
+/** 这一下有多响。雨、雪、雾、雷会盖掉一部分。 */
+export function noiseOf(kind, itemName, weatherLabel) {
+  let n = 1
+  if (kind === 'scavenge') n = 3
+  else if (kind === 'craft' || kind === 'upgrade') n = 3
+  else if (kind === 'use' && LOUD_NAME.test(itemName || '')) n = 5
+  else if (kind === 'use') n = 1
+  else if (kind === 'fire') n = 2
+  if (QUIET_WEATHER.test(weatherLabel || '')) n = Math.max(0, n - 2)
+  return n
+}
+
+export function addNoise(state, amount) {
+  const n = Math.max(0, Math.round(Number(amount) || 0))
+  state.noise = Math.max(0, Math.min(10, Math.round(Number(state.noise) || 0) + n))
+  return state.noise
+}
+
+/** 每过一小时，声响掉 1。掉到 0 就不再被人听见。 */
+export function tickNoise(state, hours) {
+  const steps = Math.floor(Number(hours) || 0)
+  if (steps <= 0) return state.noise || 0
+  state.noise = Math.max(0, Math.round(Number(state.noise) || 0) - steps)
+  return state.noise
+}
+
+export function noiseLine(state) {
+  const n = Math.round(Number(state?.noise) || 0)
+  if (n <= 0) return '安静'
+  if (n <= 3) return '有一点动静'
+  if (n <= 6) return '外面听得见'
+  return '很响，会把东西引过来'
+}
+
+const FUEL_NEED = { label: '燃料', category: '杂物', keys: ['柴', '木', '纸', '油', '炭'] }
+
+export function fuelNeed() {
+  return FUEL_NEED
+}
+
+/** 夜里有火的落脚点，每过一夜烧一份燃料。没有就灭。 */
+export function burnFires(state, crossedNight, pick) {
+  const notes = []
+  if (!crossedNight) return notes
+  const upgrades = state.upgrades || {}
+  for (const [place, u] of Object.entries(upgrades)) {
+    if (!u?.fire) continue
+    const spent = typeof pick === 'function' ? pick(state, [FUEL_NEED]) : null
+    if (spent) notes.push(`${place}的火还在`)
+    else {
+      u.fire = 0
+      notes.push(`${place}的火灭了`)
+    }
+  }
+  return notes
+}
+
+export function rememberDeath(state) {
+  const who = String(state?.protagonist?.name || '一个没留下名字的人').slice(0, 12)
+  const where = String(state?.location || '不知道的地方').slice(0, 16)
+  const title = String(state?.ending?.title || '死在这里').slice(0, 8)
+  return `${who}死在${where}，${title}`.slice(0, 40)
+}
+
 /** 两个地图点之间的赶路耗时。网格一格大约 1 小时，夜里再加半小时。 */
 export function travelPlan(state, destName, isNight) {
   const nodes = state?.mapNodes || []
@@ -177,6 +265,7 @@ export function travelPlan(state, destName, isNight) {
   const dist = Math.hypot(Number(dest.x) - Number(here.x), Number(dest.y) - Number(here.y))
   let hours = Math.max(0.5, Math.min(4, Math.round((dist / 112) * 2) / 2))
   if (isNight) hours = Math.min(4, hours + 0.5)
+  if (carryOf(state).over) hours = Math.min(4, hours + 0.5)
   return {
     dest: dest.name,
     hours,

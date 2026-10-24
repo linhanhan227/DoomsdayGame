@@ -25,7 +25,7 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
       baseUrl: settings?.baseUrl || FALLBACK_URL,
       model: settings?.model || FALLBACK_MODEL,
       apiKey: '',
-      temperature: settings?.temperature ?? 1.05,
+      temperature: Math.max(0, Math.min(1, Number(settings?.temperature ?? 1) || 1)),
       corsProxy:
         settings?.corsProxy === 'corsio' || settings?.corsProxy === 'custom' || settings?.corsProxy === 'same'
           ? settings.corsProxy
@@ -169,7 +169,7 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
             }}
           >
             <option value="openai">预设 · DeepSeek / OpenAI / Moonshot 等（OpenAI 兼容）</option>
-            <option value="custom">自定义 · 任意 OpenAI 兼容接口</option>
+            <option value="custom">自定义 · OpenAI 接口（/v1/chat/completions）</option>
           </select>
           <div className="sub">没有可用的 AI 模型时无法开始游戏，请先配置并测试通过。</div>
         </div>
@@ -213,12 +213,12 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
             <input
               value={draft.baseUrl}
               onChange={(e) => set('baseUrl', e.target.value)}
-              placeholder="https://your-endpoint.example.com/v1"
+              placeholder={isCustom ? 'https://api.openai.com/v1' : 'https://api.deepseek.com/v1'}
             />
             <div className="sub">
               {isCustom
-                ? '填写任意 OpenAI 兼容地址（含 /v1 等版本路径），程序会自动拼接 /chat/completions'
-                : '需包含版本路径（通常以 /v1 结尾），程序会自动拼接 /chat/completions'}
+                ? '按 OpenAI 接口调用：可填域名、以 /v1 结尾的地址，或完整的 /v1/chat/completions。请求使用 Bearer 鉴权，正文为 model 与 messages。'
+                : '需包含版本路径（通常以 /v1 结尾）。已经写成 /chat/completions 时不会再拼一次。'}
             </div>
           </div>
 
@@ -244,15 +244,17 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
 
           <div className="field">
             <label>温度（越高越随机）· {Number(draft.temperature).toFixed(2)}</label>
+            <div className="temp-scale"><span>0</span><span>1</span></div>
             <input
+              className="temp-range"
               type="range"
-              min="0.5"
-              max="1.4"
-              step="0.05"
+              min="0"
+              max="1"
+              step="0.01"
               value={draft.temperature}
               onChange={(e) => set('temperature', Number(e.target.value))}
             />
-            <div className="sub">末日叙事建议 0.95 ~ 1.15，用于强化「结局完全随机」的体验</div>
+            <div className="sub">滑到最右就是 1，也是这个接口允许的最高温度。末日叙事建议 0.9 ~ 1。</div>
           </div>
 
           <div className="field">

@@ -15,6 +15,7 @@
     "preview": "vite preview",
     "start": "node server.js",
     "serve": "node server.js",
+    "test:llm": "node scripts/llm-response-test.mjs",
     "build:bonto": "npm run build:host && node scripts/build-bonto.mjs",
     "deploy:bonto": "node scripts/deploy-bonto.mjs"
   },

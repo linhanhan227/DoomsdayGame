@@ -6,9 +6,26 @@
  *   https://api.openai.com/v1/chat/completions
  */
 export function openAIChatUrl(base) {
-  let b = String(base || '').trim().replace(/\/+$/, '')
-  if (!b) return ''
-  if (/\/chat\/completions$/i.test(b)) return b
-  if (/\/v\d+$/i.test(b)) return `${b}/chat/completions`
-  return `${b}/v1/chat/completions`
+  const raw = String(base || '').trim()
+  if (!raw) return ''
+
+  let url
+  try {
+    url = new URL(raw)
+  } catch {
+    let b = raw.replace(/\/+$/, '')
+    if (/\/chat\/completions$/i.test(b)) return b
+    if (/\/v\d+$/i.test(b)) return `${b}/chat/completions`
+    return `${b}/v1/chat/completions`
+  }
+
+  let path = url.pathname.replace(/\/+$/, '')
+  if (/\/responses$/i.test(path)) {
+    throw new Error('当前自定义通道使用 Chat Completions，请填写以 /v1 或 /chat/completions 结尾的地址，不能填写 /responses。')
+  }
+  if (!/\/chat\/completions$/i.test(path)) {
+    path = /\/v\d+$/i.test(path) ? `${path}/chat/completions` : `${path}/v1/chat/completions`
+  }
+  url.pathname = path
+  return url.toString()
 }

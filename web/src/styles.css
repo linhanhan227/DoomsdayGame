@@ -1189,3 +1189,98 @@ label.db-file-label,
   .choice:hover:not(:disabled) { transform: none; }
   .btn:hover:not(:disabled) { box-shadow: none; }
 }
+
+/* ---------- 像素剧情动画 ---------- */
+/* 每回合先播一段 Canvas 像素动画（分镜由 AI 给出、引擎归一化），播完才显示选项 */
+.pixel-player {
+  margin: 0 0 20px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #05070a;
+  animation: fadeUp 0.5s ease both;
+}
+.pixel-player canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #05070a;
+}
+.pixel-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--panel);
+  min-width: 0;
+}
+.pixel-shot-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pixel-caption-text {
+  font-family: var(--serif);
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #cfd6d0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pixel-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--bg-2);
+}
+.pixel-dots { display: flex; gap: 5px; align-items: center; }
+.pixel-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.pixel-dots i.on { background: var(--rust-soft); }
+.pixel-loc {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+.pixel-skip {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  transition: all 0.16s ease;
+}
+.pixel-skip:hover { color: var(--text); border-color: var(--rust); }
+/* 播完 / 跳过后收起为一行「重播」入口，不再占据画面 */
+.pixel-player.is-done { background: transparent; border: 1px dashed var(--line-soft); margin-bottom: 16px; }
+.pixel-replay {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: left;
+  transition: color 0.16s ease;
+}
+.pixel-replay:hover { color: var(--text); }

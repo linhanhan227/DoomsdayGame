@@ -124,10 +124,10 @@ export function saveSession(state) {
   run(
     `INSERT INTO sessions
        (id, created_at, updated_at, turn, day, minute, weather, location, over, memory,
-        protagonist, stats, main_quest, ending, last_event,
+        protagonist, stats, main_quest, ending, last_event, pixel_storyboard,
         scavenge_count, scavenge_spot, scavenge_spot_count, scavenge_cap, scavenge_skip_spot,
         scavenge_safe, unsafe_reason, used_this_turn, use_count)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(id) DO UPDATE SET
        updated_at     = excluded.updated_at,
        turn           = excluded.turn,
@@ -142,6 +142,7 @@ export function saveSession(state) {
        main_quest     = excluded.main_quest,
        ending         = excluded.ending,
        last_event     = excluded.last_event,
+       pixel_storyboard = excluded.pixel_storyboard,
        scavenge_count      = excluded.scavenge_count,
        scavenge_spot       = excluded.scavenge_spot,
        scavenge_spot_count = excluded.scavenge_spot_count,
@@ -167,6 +168,7 @@ export function saveSession(state) {
       state.mainQuest ? JSON.stringify(state.mainQuest) : null,
       state.ending ? JSON.stringify(state.ending) : null,
       state.lastEvent ? JSON.stringify(state.lastEvent) : null,
+      state.pixelStoryboard ? JSON.stringify(state.pixelStoryboard) : null,
       state.scavengeCount || 0,
       state.scavengeSpot || null,
       state.scavengeSpotCount || 0,
@@ -312,6 +314,7 @@ export function loadSession(id) {
     mainQuest: parse(row.main_quest, null),
     ending: parse(row.ending, null),
     lastEvent: parse(row.last_event, null),
+    pixelStoryboard: parse(row.pixel_storyboard, null),
     scavengeCount: row.scavenge_count || 0,
     scavengeSpot: row.scavenge_spot || null,
     scavengeSpotCount: row.scavenge_spot_count || 0,

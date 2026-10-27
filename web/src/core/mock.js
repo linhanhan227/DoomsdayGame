@@ -41,7 +41,8 @@ function endingPayload() {
  */
 function useItemPayload(userPrompt) {
   const text = String(userPrompt)
-  const m = text.match(/使用物品）主角停下来，取用背包中的一件物品：\*\*(.+?)\*\*（分类：(.+?)[，)）]/)
+  // 兼容提示词行动句的措辞变化（历史上出现过「主角停下来」「主角没有离开当前场面」等写法）
+  const m = text.match(/使用物品）主角[^：]*?取用背包中的一件物品：\*\*(.+?)\*\*（分类：(.+?)[，)）]/)
   const name = m ? m[1] : '某件物品'
   const category = m ? m[2] : '杂物'
 
@@ -509,7 +510,8 @@ function sleepPayload(userPrompt) {
 /** 离线体验：交出物品分支（对方反应由物品是否"适合交换"与接收方决定） */
 function giveItemPayload(userPrompt) {
   const text = String(userPrompt)
-  const m = text.match(/（交出物品）主角主动把背包里的 \*\*(.+?)\*\*（分类：(.+?)[，)）]/)
+  // 提示词行动句改为「主角把东西递给……背包里的 **X**（分类：Y……）交出去」，锚定在物品段而非开场白
+  const m = text.match(/背包里的 \*\*(.+?)\*\*（分类：(.+?)[，)）]/)
   const name = m ? m[1] : '某件物品'
   const category = m ? m[2] : '杂物'
   const tradable = /本身适合交换/.test(text)
@@ -635,6 +637,9 @@ function upgradePayload(userPrompt) {
 }
 
 export function mockRespond(userPrompt = '') {
+  // 连通性测试探针（App 开局前会先实测通道）：按约定只回 {"ok": true}
+  if (/请只回复|连通性测试/.test(userPrompt)) return { ok: true, _mock: true }
+
   const isOpening = /【阶段】开局/.test(userPrompt)
   const isEnding = /【触发原因】/.test(userPrompt)
   const isScavenge = /【搜刮次数】/.test(userPrompt)
@@ -718,6 +723,42 @@ export function mockRespond(userPrompt = '') {
         { name: '城南出租屋', quality: 2, note: '门锁还能用，离医院三站地' },
       ],
       narration: NARRATIONS[0],
+      // 像素分镜：验证「模型给出分镜 → 引擎归一化采纳」路径（自检覆盖）
+      pixelStoryboard: {
+        shots: [
+          {
+            caption: '急诊大厅的人群四散奔逃',
+            setting: 'corridor',
+            action: 'run',
+            camera: 'wide',
+            mood: 'danger',
+            focus: 'door',
+            cast: [
+              { name: '林默', role: 'protagonist' },
+              { name: '咬人的病人', role: 'infected' },
+            ],
+            props: ['medkit'],
+            crowd: 4,
+            light: 'lamp',
+            direction: 'left',
+            durationMs: 3200,
+          },
+          {
+            caption: '安全通道的绿灯还亮着',
+            setting: 'corridor',
+            action: 'walk',
+            camera: 'push-in',
+            mood: 'tense',
+            focus: 'door',
+            cast: [{ name: '林默', role: 'protagonist' }],
+            props: [],
+            crowd: 0,
+            light: 'lamp',
+            direction: 'right',
+            durationMs: 3400,
+          },
+        ],
+      },
       // 开局尚无支线：选项只能标 "main"（推进主线）或 "new"（先自保 / 探索）。
       // 选项刻意"势均力敌"——没有一眼可辨的正确项；B 还特意写了剧透副词「果断地」，
       // 用于验证引擎侧的去剧透兜底（polishChoiceText 会把它摘掉）。

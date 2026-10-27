@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import EndingScreen from './EndingScreen.jsx'
+import PixelStoryPlayer from './PixelStoryPlayer.jsx'
 
 const TARGET_SELF = '自己'
 const TARGET_HERE = '就地使用'
@@ -997,6 +998,8 @@ export default function GameScreen({
 }) {
   const endRef = useRef(null)
   const [typing, setTyping] = useState(false)
+  // 像素剧情动画：每回合先播动画，播完（或跳过）才显示选项
+  const [scenePlaying, setScenePlaying] = useState(false)
   const [picker, setPicker] = useState(null) // { mode:'use'|'give', item }
   const [panel, setPanel] = useState(null) // 'bag' | 'flags' | 'conditions' | 'allies' | 'virus'：顶栏收纳面板
   const [sleepOpen, setSleepOpen] = useState(false) // 睡觉地点面板
@@ -1007,14 +1010,21 @@ export default function GameScreen({
   const lastTurn = log.length ? log[log.length - 1].turn : null
   const visibleLog = lastTurn === null ? [] : log.filter((e) => e.turn === lastTurn)
 
+  // 回合（或任何新增日志的动作）变化时，按是否带分镜重置动画状态
+  const sceneKey = `${game.id}:${game.turn}:${log.length}`
+  useEffect(() => {
+    setScenePlaying(Boolean(game.pixelStoryboard) && !game.over)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneKey])
+
   useEffect(() => {
     if (game.narration) setTyping(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.turn, game.id])
 
   useEffect(() => {
-    if (!typing) endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [typing, log.length, busy])
+    if (!typing && !scenePlaying) endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [typing, scenePlaying, log.length, busy])
 
   // 背包里的对象候选：自己 / 每位同行者 / 就地使用
   const targetOptions = [TARGET_SELF, ...(game.allies || []).map((a) => a.name), TARGET_HERE]
@@ -1165,6 +1175,13 @@ export default function GameScreen({
 
       <div className="body">
         <div className="story">
+          {game.pixelStoryboard && !game.over && (
+            <PixelStoryPlayer
+              key={sceneKey}
+              storyboard={game.pixelStoryboard}
+              onChange={(s) => setScenePlaying(s === 'playing')}
+            />
+          )}
           {visibleLog.map((entry, i) => {
             const isLast = i === visibleLog.length - 1
             const isEndingEntry = entry.kind === 'ending'
@@ -1250,12 +1267,12 @@ export default function GameScreen({
 
           {!game.over && (
             <div className="choices">
-              {busy || typing ? (
+              {busy || typing || scenePlaying ? (
                 <div className="thinking">
                   <span className="dot" />
                   <span className="dot" />
                   <span className="dot" />
-                  {busy ? '世界正在推演下一步…' : '……'}
+                  {busy ? '世界正在推演下一步…' : scenePlaying ? '剧情动画播放中…' : '……'}
                 </div>
               ) : (
                 <>

@@ -203,7 +203,16 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
       chunkSizeWarningLimit: 2048,
       // 单文件版必须把动态 import 一并内联，否则 file:// 下加载子 chunk 会被拦
-      ...(single ? { rollupOptions: { output: { inlineDynamicImports: true } } } : {}),
+      // 多文件托管版则把 react/react-dom 拆成独立 vendor chunk，提升浏览器缓存命中
+      ...(single
+        ? { rollupOptions: { output: { inlineDynamicImports: true } } }
+        : {
+            rollupOptions: {
+              output: {
+                manualChunks: { react: ['react', 'react-dom'] },
+              },
+            },
+          }),
     },
     server: {
       port: 5173,

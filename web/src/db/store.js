@@ -9,6 +9,9 @@
  */
 import { run, get, all, flush } from './sqlite.js'
 
+// 单局叙事日志上限：超过后仅保留最近 N 条，避免长期游玩撑爆 IndexedDB 配额
+const MAX_LOG_ENTRIES = 4000
+
 /* ============================ 配置 ============================ */
 
 const DEFAULTS = {
@@ -176,11 +179,22 @@ export function saveSession(state) {
     ],
   )
 
-  // 叙事日志：增量补齐
-  const log = state.log || []
-  const stored = get('SELECT COUNT(*) AS c FROM log_entries WHERE session_id = ?', [state.id])?.c || 0
-  if (stored > log.length) run('DELETE FROM log_entries WHERE session_id = ?', [state.id])
-  for (let i = stored > log.length ? 0 : stored; i < log.length; i++) {
+  // 叙事日志：增量补齐；超过上限时仅保留最近 N 条，避免长期游玩撑爆 IndexedDB
+  let forceRewrite = false
+  let log = state.log || []
+  if (log.length > MAX_LOG_ENTRIES) {
+    log = log.slice(log.length - MAX_LOG_ENTRIES)
+    forceRewrite = true
+  }
+  let stored = get('SELECT COUNT(*) AS c FROM log_entries WHERE session_id = ?', [state.id])?.c || 0
+  let from = stored > log.length ? 0 : stored
+  // 索引错位或已超过上限时，整段重写以保证 DB 与内存对齐
+  if (stored > log.length || forceRewrite) {
+    if (stored > 0) run('DELETE FROM log_entries WHERE session_id = ?', [state.id])
+    stored = 0
+    from = 0
+  }
+  for (let i = from; i < log.length; i++) {
     const e = log[i]
     run(
       'INSERT INTO log_entries (session_id, turn, kind, text, chosen, day, time, loot, used, target, special, weather) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',

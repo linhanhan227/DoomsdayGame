@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build host bundle (dist/)
+        run: npm run build:host
+
+      - name: Verify inlined wasm matches sql.js
+        run: npm run check:wasm
+
+      - name: Setup Chrome (for browser E2E self-test)
+        id: chrome
+        uses: browser-actions/setup-chrome@latest
+
+      - name: Run engine self-test (browser E2E)
+        run: |
+          set -e
+          # 1) 启动静态预览服务（serves dist/，默认端口 4173）
+          npm run preview -- --port 4173 --strictPort >/tmp/preview.log 2>&1 &
+          PREVIEW_PID=$!
+          # 2) 等预览服务就绪
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:4173 >/dev/null 2>&1; then echo "preview up"; break; fi
+            sleep 1
+          done
+          # 3) 启动带远程调试端口的 Chrome（selftest 通过 CDP 驱动它）
+          "${{ steps.chrome.outputs.chrome-path }}" \
+            --headless=new --remote-debugging-port=9222 --no-sandbox --disable-gpu \
+            --user-data-dir=/tmp/chrome-cdp about:blank >/tmp/chrome.log 2>&1 &
+          CHROME_PID=$!
+          # 4) 跑自检（selftest 会等待 CDP 与预览就绪）
+          node scripts/selftest.mjs
+          STATUS=$?
+          # 5) 收尾
+          kill $CHROME_PID 2>/dev/null || true
+          kill $PREVIEW_PID 2>/dev/null || true
+          exit $STATUS

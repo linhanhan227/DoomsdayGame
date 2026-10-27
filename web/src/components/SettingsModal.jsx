@@ -139,6 +139,23 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
 
   const isCustom = draft.provider === 'custom'
 
+  // 即时格式校验：URL 合法、Key 已填或已配置、模型非空。校验未过则禁用保存/测试。
+  const urlError = (() => {
+    const v = (draft.baseUrl || '').trim()
+    if (!v) return '请填写 Base URL'
+    try {
+      const u = new URL(v)
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'Base URL 须以 http:// 或 https:// 开头'
+      return null
+    } catch {
+      return 'Base URL 不是合法的 URL'
+    }
+  })()
+  const keyError = (draft.apiKey.trim() || settings?.hasKey) ? null : '请填写 API Key（留空代表不改已保存的 Key，但当前尚未配置任何 Key）'
+  const modelError = (draft.model || '').trim() ? null : '请填写模型名'
+  const formValid = !urlError && !keyError && !modelError
+  const errStyle = { color: '#c0392b', fontSize: 12, marginTop: 4 }
+
   return (
     <div className="modal-mask" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
@@ -214,12 +231,14 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
               value={draft.baseUrl}
               onChange={(e) => set('baseUrl', e.target.value)}
               placeholder={isCustom ? 'https://api.openai.com/v1' : 'https://api.deepseek.com/v1'}
+              style={urlError ? { borderColor: '#c0392b' } : undefined}
             />
             <div className="sub">
               {isCustom
                 ? '按 OpenAI 接口调用：可填域名、以 /v1 结尾的地址，或完整的 /v1/chat/completions。请求使用 Bearer 鉴权，正文为 model 与 messages。'
                 : '需包含版本路径（通常以 /v1 结尾）。已经写成 /chat/completions 时不会再拼一次。'}
             </div>
+            {urlError && <div style={errStyle}>{urlError}</div>}
           </div>
 
           <div className="field">
@@ -228,7 +247,9 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
               value={draft.model}
               onChange={(e) => set('model', e.target.value)}
               placeholder={isCustom ? '例如：deepseek-chat / qwen2.5-72b-instruct' : 'deepseek-chat'}
+              style={modelError ? { borderColor: '#c0392b' } : undefined}
             />
+            {modelError && <div style={errStyle}>{modelError}</div>}
           </div>
 
           <div className="field">
@@ -238,8 +259,10 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
               value={draft.apiKey}
               onChange={(e) => set('apiKey', e.target.value)}
               placeholder={settings?.hasKey ? '已配置（留空则保持不变）' : 'sk-...'}
+              style={keyError && !settings?.hasKey ? { borderColor: '#c0392b' } : undefined}
             />
             <div className="sub">留空表示不修改已保存的 Key。Key 只保存在你本机的 SQLite 里，不会上传。</div>
+            {keyError && <div style={errStyle}>{keyError}</div>}
           </div>
 
           <div className="field">
@@ -317,13 +340,13 @@ export default function SettingsModal({ settings, onClose, onSave, onTest, notif
         </div>
 
         <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={handleTest} disabled={testing}>
+          <button className="btn btn-ghost" onClick={handleTest} disabled={testing || !formValid}>
             {testing ? '测试中…' : '测试连通性'}
           </button>
           <button className="btn" onClick={onClose} disabled={saving}>
             取消
           </button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving || !formValid}>
             {saving ? '保存中…' : '保存'}
           </button>
         </div>

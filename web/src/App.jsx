@@ -117,9 +117,20 @@ export default function App() {
     })()
   }, [loadSettings, notify])
 
-  // 调试/自检钩子（纯本地单人游戏，无安全顾虑）
+  // 调试/自检钩子：默认不挂到 window，仅在（a）开发模式，或（b）URL 带 ?selftest=1
+  // 这类显式开关下启用。这样既满足"生产构建不暴露 api/game/settings"的安全要求，
+  // 又让 scripts/selftest.mjs 能通过一个显式开关驱动应用做端到端自检。
   useEffect(() => {
+    const enabled =
+      import.meta.env.DEV || /[?&](selftest|e2e)=1/.test(window.location.search)
+    if (!enabled) {
+      if (window.__ASHES__) delete window.__ASHES__
+      return
+    }
     window.__ASHES__ = { api, game, phase, settings }
+    return () => {
+      delete window.__ASHES__
+    }
   }, [game, phase, settings])
 
   const guardReady = useCallback(() => {

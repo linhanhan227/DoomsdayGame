@@ -9,6 +9,9 @@
  *   3) 运行：
  *        node scripts/selftest.mjs
  *
+ * 说明：App 仅在开发模式或 URL 带 ?selftest=1 时暴露 window.__ASHES__ 自检钩子，
+ *       本脚本会自动以 ?selftest=1 打开页面，无需手动加参数。
+ *
  * 环境变量：CDP（默认 http://127.0.0.1:9222）、APP（默认 http://127.0.0.1:4173）
  */
 import { readdirSync } from 'node:fs'
@@ -157,7 +160,8 @@ console.log('[1] 载入应用与 SQLite')
 if (MOCK_FETCH_PATCH) {
   await send('Page.addScriptToEvaluateOnNewDocument', { source: MOCK_FETCH_PATCH }, sessionId)
 }
-await send('Page.navigate', { url: APP }, sessionId)
+// 带 ?selftest=1 打开页面：App 仅在显式开关下暴露 window.__ASHES__ 自检钩子
+await send('Page.navigate', { url: `${APP}${APP.includes('?') ? '&' : '?'}selftest=1` }, sessionId)
 await waitFor(`window.__ASHES__ && window.__ASHES__.api`, 60000, '应用启动 + SQLite 初始化')
 await evalJs(`window.__errs=[]; window.addEventListener('error', e => window.__errs.push(String(e.message)))`)
 report([
@@ -1100,13 +1104,13 @@ if (process.env.PROMPT_ONLY === '1') {
 
 /* ---------------- UI 渲染 ---------------- */
 console.log('\n[4] 界面渲染与交互')
-await send('Page.navigate', { url: APP }, sessionId)
+await send('Page.navigate', { url: `${APP}${APP.includes('?') ? '&' : '?'}selftest=1` }, sessionId)
 await waitFor(`window.__ASHES__ && window.__ASHES__.api`, 60000, '重新载入')
 // 界面段改用「看起来就绪」的 openai 通道：请求会被注入的 fetch 补丁交给离线内容
 await evalJs(
   `window.__ASHES__.api.saveSettings({ provider: 'openai', baseUrl: 'http://127.0.0.1:9/v1', model: 'selftest-model', apiKey: 'sk-selftest' })`,
 )
-await send('Page.navigate', { url: APP }, sessionId)
+await send('Page.navigate', { url: `${APP}${APP.includes('?') ? '&' : '?'}selftest=1` }, sessionId)
 await waitFor(`document.querySelector('.menu-actions')`, 60000, '主菜单渲染')
 
 const menuOk = await evalJs(`!!document.querySelector('.menu-actions')`)

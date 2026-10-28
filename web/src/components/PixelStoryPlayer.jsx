@@ -89,6 +89,8 @@ export default function PixelStoryPlayer({ storyboard, onChange }) {
   if (!shots) return null
 
   const replay = () => {
+    // onChange effect 比播放 effect 先执行；必须先清完成标记，父层才会收到 playing 并隐藏选项
+    doneRef.current = false
     setShotIndex(0)
     setPlaying(true)
     setRunId((n) => n + 1)

@@ -1322,6 +1322,24 @@ report([
   { name: '提供「重播本回合动画」入口', pass: pixelUi.replay === true },
 ])
 
+/* 审计回归：重播不是装饰，重播期间必须再次隐藏选项；结束后恢复 */
+const choicesBeforeReplay = await evalJs(`document.querySelectorAll('.choice').length`)
+await evalJs(`document.querySelector('.pixel-replay')?.click(), true`)
+await sleep(250)
+const replayGate = await evalJs(`({
+  playing: !!document.querySelector('.pixel-player:not(.is-done)'),
+  choices: document.querySelectorAll('.choice').length,
+  thinking: (document.querySelector('.thinking') || {}).textContent || '',
+})`)
+report([
+  { name: '点击重播后动画重新播放', pass: replayGate.playing === true },
+  { name: '重播期间再次隐藏选项（P1 回归）', pass: choicesBeforeReplay > 0 && replayGate.choices === 0, extra: choicesBeforeReplay + ' → ' + replayGate.choices },
+  { name: '重播期间显示动画状态', pass: /剧情动画播放中/.test(replayGate.thinking), extra: replayGate.thinking },
+])
+await waitFor(`document.querySelector('.choice') && document.querySelector('.pixel-player.is-done')`, 20000, '重播结束后选项恢复')
+const choicesAfterReplay = await evalJs(`document.querySelectorAll('.choice').length`)
+report([{ name: '重播结束后选项恢复', pass: choicesAfterReplay === choicesBeforeReplay, extra: choicesAfterReplay + ' 个' }])
+
 /* ---------------- 区域地图（绘制式，非文字地图） ---------------- */
 const mapBtnClick = await evalJs(`(() => {
   const b = [...document.querySelectorAll('.topbar-sub-group > .btn')].find(x => /地图/.test(x.textContent))

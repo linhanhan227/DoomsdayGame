@@ -191,7 +191,7 @@ function migrate() {
   addIfMissing('sessions', 'unsafe_reason', 'TEXT')
   addIfMissing('sessions', 'used_this_turn', 'TEXT')
   addIfMissing('sessions', 'use_count', 'INTEGER NOT NULL DEFAULT 0')
-  // 像素分镜（剧情动画数据）：旧存档补列，读取时缺省为 null（直接显示选项）
+  // 像素剧情（剧情动画数据）：旧存档补列，读取时缺省为 null（直接显示选项）
   addIfMissing('sessions', 'pixel_storyboard', 'TEXT')
   addIfMissing('sessions', 'minute', 'INTEGER NOT NULL DEFAULT 360')
   addIfMissing('sessions', 'weather', 'TEXT')

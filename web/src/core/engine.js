@@ -44,7 +44,7 @@ import {
   timeOfDayPhrase,
   slotFromLabel,
 } from './prompt.js'
-import { normalizeStoryboard } from './storyboard.js'
+import { normalizePlot } from './plot.js'
 import {
   syncWounds,
   tickWounds,
@@ -191,8 +191,8 @@ function baseState() {
     timeline: [],
     log: [],
     lastEvent: null,
-    // 本回合的像素分镜（AI 描述 + 引擎归一化）：前端画成剧情动画，播完才出选项
-    pixelStoryboard: null,
+    // 本回合的像素剧情（AI 描述 + 引擎归一化）：前端画成剧情动画，播完才出选项
+    pixelPlot: null,
     // 搜刮：次数统计 + 同一地点连续搜刮的收益衰减 + 该地点的随机搜刮上限（0-3）
     scavengeCount: 0,
     scavengeSpot: null,
@@ -1130,7 +1130,7 @@ function applyOpening(state, raw) {
   state.over = false
   state.ending = null
   applyMemoryAndTimeline(state, raw)
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   state.log = [
     { turn: 0, kind: 'opening', text: state.lastEvent.text, chosen: null, day: state.day, time: formatClock(state.minute), weather: weatherLogLabel(state) },
   ]
@@ -1277,7 +1277,7 @@ export async function sleep(id, placeName) {
     time: formatClock(state.minute),
     weather: weatherLogLabel(state),
   })
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   applyMemoryAndTimeline(state, raw)
 
   // 一觉醒来是新的一天：重置"本回合已用物品"，并让放弃搜刮的标记失效
@@ -1376,7 +1376,7 @@ function applyEvent(state, raw, choiceText) {
     choices,
   }
   applyMemoryAndTimeline(state, raw)
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   state.log.push({
     turn: state.turn,
     kind: 'event',
@@ -1549,8 +1549,8 @@ export function publicState(state) {
     log: state.log,
     choices: state.over ? [] : state.lastEvent?.choices || [],
     narration: state.lastEvent?.text || '',
-    // 本回合像素分镜（前端先播动画、播完再出选项；无分镜则直接显示选项）
-    pixelStoryboard: state.pixelStoryboard || null,
+    // 本回合像素剧情（前端先播动画、播完再出选项；无剧情动画则直接显示选项）
+    pixelPlot: state.pixelPlot || null,
     over: state.over,
     ending: state.ending,
     canScavenge: !state.over,
@@ -1833,7 +1833,7 @@ export async function scavenge(id) {
     special: hasSpecial ? special.kind : '',
     specialTitle: hasSpecial ? special.title || (special.kind === 'danger' ? '突发状况' : '意外收获') : '',
   })
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   applyMemoryAndTimeline(state, raw)
 
   const cause = pendingEndingCause(state)
@@ -1941,7 +1941,7 @@ export async function useItem(id, itemName, target) {
     used: item.name,
     target: who,
   })
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   applyMemoryAndTimeline(state, raw)
 
   if (raw.isEnding) {
@@ -2023,7 +2023,7 @@ export async function giveItem(id, itemName, targetName) {
     used: item.name,
     target: who,
   })
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   applyMemoryAndTimeline(state, raw)
 
   if (raw.isEnding) {
@@ -2247,7 +2247,7 @@ export async function craft(id, recipeId) {
     used: recipe.name,
     loot: [recipe.name],
   })
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   applyMemoryAndTimeline(state, raw)
 
   if (raw.isEnding) {
@@ -2360,7 +2360,7 @@ export async function acceptTrade(id) {
     loot: [offer.get.name],
     target: offer.partner,
   })
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   applyMemoryAndTimeline(state, raw)
   state.tradeOffer = null
 
@@ -2452,7 +2452,7 @@ export async function upgradeShelter(id, shelterName, slotId) {
     used: slot.label,
     target: shelter.name,
   })
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   applyMemoryAndTimeline(state, raw)
 
   if (raw.isEnding) {
@@ -2520,7 +2520,7 @@ export async function travel(id, destName) {
     time: formatClock(state.minute),
     weather: weatherLogLabel(state),
   })
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   applyMemoryAndTimeline(state, raw)
   const cause = pendingEndingCause(state)
   if (cause) await forceEnding(state, cause)
@@ -2562,7 +2562,7 @@ export async function keepAppointment(id, appointmentId) {
     time: formatClock(state.minute),
     weather: weatherLogLabel(state),
   })
-  state.pixelStoryboard = normalizeStoryboard(raw, state)
+  state.pixelPlot = normalizePlot(raw, state)
   applyMemoryAndTimeline(state, raw)
   const cause = pendingEndingCause(state)
   if (cause) await forceEnding(state, cause)
@@ -2579,8 +2579,8 @@ export function dropItemAction(id, name) {
   const result = dropItem(state, name)
   if (!result.ok) throw new GameError(result.reason, 400)
   pruneInventory(state)
-  // 丢下物品不另开剧情：清掉分镜，前端不重播上一幕动画
-  state.pixelStoryboard = null
+  // 丢下物品不另开剧情：清掉剧情动画，前端不重播上一幕动画
+  state.pixelPlot = null
   const carry = carryOf(state)
   state.log.push({
     turn: state.turn,
@@ -2604,8 +2604,8 @@ export function feedAllyAction(id, name) {
   const result = feedAlly(state, name)
   if (!result.ok) throw new GameError(result.reason, 400)
   pruneInventory(state)
-  // 分食不另开剧情：清掉分镜，前端不重播上一幕动画
-  state.pixelStoryboard = null
+  // 分食不另开剧情：清掉剧情动画，前端不重播上一幕动画
+  state.pixelPlot = null
   state.log.push({
     turn: state.turn,
     kind: 'feed',

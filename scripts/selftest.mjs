@@ -16,7 +16,7 @@
  */
 import { readdirSync } from 'node:fs'
 import { rollEventPlan, formatEventPlan, buildTurnPrompt, buildOpeningPrompt, buildScavengePrompt, buildSleepPrompt, buildUseItemPrompt, buildLinkageChecklist, buildConsumePrompt, OUTPUT_SCHEMA, polishChoiceText, SYSTEM_PROMPT } from '../web/src/core/prompt.js'
-import { normalizeStoryboard } from '../web/src/core/storyboard.js'
+import { normalizePlot } from '../web/src/core/plot.js'
 
 const BROWSER = process.env.CDP || 'http://127.0.0.1:9222'
 const APP = process.env.APP || 'http://127.0.0.1:4173'
@@ -209,14 +209,14 @@ const LOGIC = `
   ok('开局时刻为 24 小时制 HH:MM', /^[0-9]{2}:[0-9]{2}$/.test(g0.clock) && Number.isInteger(g0.minute) && g0.minute >= 0 && g0.minute < 1440, g0.clock+' / min='+g0.minute)
   ok('昼夜标记可用', typeof g0.isNight === 'boolean' && ['白天','黄昏','夜晚'].includes(g0.dayPhase), g0.dayPhase+' / isNight='+g0.isNight)
   ok('开局带天气', !!g0.weather && typeof g0.weather.label === 'string' && g0.weather.label.length > 0, g0.weather?.label)
-  ok('开局带像素分镜（2 幕）', Array.isArray(g0.pixelStoryboard?.shots) && g0.pixelStoryboard.shots.length === 2,
-    JSON.stringify(g0.pixelStoryboard?.shots?.map((s) => s.caption) || []))
-  ok('分镜枚举与主角出场合法',
-    (g0.pixelStoryboard?.shots || []).every((s) =>
+  ok('开局带像素剧情（剧情节点）', Array.isArray(g0.pixelPlot?.beats) && g0.pixelPlot.beats.length >= 2,
+    JSON.stringify(g0.pixelPlot?.beats?.map((s) => s.caption) || []))
+  ok('剧情节点枚举与主角出场合法',
+    (g0.pixelPlot?.beats || []).every((s) =>
       typeof s.caption === 'string' && s.caption.length > 0 &&
       ['street', 'corridor', 'room', 'rooftop', 'forest', 'station', 'store'].includes(s.setting) &&
       Array.isArray(s.cast) && s.cast.some((c) => c.role === 'protagonist')))
-  ok('像素分镜可持久化', (await api.getGame(g0.id)).pixelStoryboard?.shots?.length === 2)
+  ok('像素剧情可持久化', (await api.getGame(g0.id)).pixelPlot?.beats?.length >= 2)
   ok('天气种类合法', ['clear','cloudy','overcast','fog','rain','storm','thunder','snow','blizzard'].includes(g0.weather?.kind), g0.weather?.kind)
   ok('开局感染值=0', g0.stats.infection === 0, g0.stats.infection)
   ok('开局背包条目均带分类', g0.inventory.length > 0 && g0.inventory.every(it => typeof it.category === 'string' && it.category), 'n='+g0.inventory.length)
@@ -1118,70 +1118,70 @@ if (process.env.PROMPT_ONLY !== '1') console.log('\n[3] 随机事件骰')
     ok3('消耗提示词要求按事件骰掷出变数', /【本回合事件骰】/.test(cp) && /意外/.test(cp))
   }
 
-  /* ---- 像素分镜（剧情动画数据） ---- */
-  ok3('输出 schema 声明 pixelStoryboard 分镜字段', /pixelStoryboard/.test(OUTPUT_SCHEMA) && /shots/.test(OUTPUT_SCHEMA))
-  ok3('系统提示词要求分镜忠实于正文', /像素分镜忠实于正文/.test(SYSTEM_PROMPT) && /恰好 2 个分镜/.test(SYSTEM_PROMPT))
+  /* ---- 像素剧情（剧情动画数据） ---- */
+  ok3('输出 schema 声明 pixelPlot 剧情节点字段', /pixelPlot/.test(OUTPUT_SCHEMA) && /beats/.test(OUTPUT_SCHEMA))
+  ok3('系统提示词要求像素剧情忠实于正文', /像素剧情忠实于正文/.test(SYSTEM_PROMPT) && /剧情节点/.test(SYSTEM_PROMPT))
   {
     const state = { minute: 22 * 60, weather: { kind: 'rain' }, location: '城南 · 市立医院', protagonist: { name: '林默' } }
-    const sb = normalizeStoryboard(
+    const sb = normalizePlot(
       {
         narration: '你在医院走廊狂奔，身后传来嘶吼。消防门就在前面，你一把推开它冲进雨里。',
-        pixelStoryboard: {
-          shots: [
-            { caption: '走廊狂奔', setting: 'corridor', action: 'run', camera: 'push-in', mood: 'danger', focus: 'door', cast: [{ name: '林默', role: 'protagonist' }, { name: '疾行者', role: 'infected' }], durationMs: 3200 },
+        pixelPlot: {
+          beats: [
+            { caption: '走廊狂奔', setting: 'corridor', action: 'run', mood: 'danger', focus: 'door', cast: [{ name: '林默', role: 'protagonist' }, { name: '疾行者', role: 'infected' }], durationMs: 3200 },
           ],
         },
       },
       state,
     )
-    ok3('分镜恰好 2 幕（模型少给时补齐）', sb.shots.length === 2, JSON.stringify(sb.shots.map((s) => s.caption)))
-    ok3('分镜沿用模型给出的第一幕', sb.shots[0].caption === '走廊狂奔' && sb.shots[0].action === 'run' && sb.shots[0].camera === 'push-in')
-    ok3('缺的第二幕由正文推导补齐', sb.shots[1].caption.length > 0 && sb.shots[1].setting === 'corridor', JSON.stringify(sb.shots[1]))
-    ok3('分镜昼夜由引擎判定（夜里为真）', sb.night === true)
-    ok3('分镜天气与地点来自状态', sb.weather === 'rain' && sb.location.includes('市立医院'))
-    ok3('分镜主角始终在场', sb.shots.every((s) => s.cast.some((c) => c.role === 'protagonist')), JSON.stringify(sb.shots.map((s) => s.cast)))
+    ok3('剧情节点至少 2 个（模型少给时补齐）', sb.beats.length >= 2, JSON.stringify(sb.beats.map((s) => s.caption)))
+    ok3('剧情节点沿用模型给出的第一幕', sb.beats[0].caption === '走廊狂奔' && sb.beats[0].action === 'run')
+    ok3('缺的节点由正文推导补齐', sb.beats[1].caption.length > 0 && sb.beats[1].setting === 'corridor', JSON.stringify(sb.beats[1]))
+    ok3('剧情节点昼夜由引擎判定（夜里为真）', sb.night === true)
+    ok3('剧情节点天气与地点来自状态', sb.weather === 'rain' && sb.location.includes('市立医院'))
+    ok3('剧情节点主角始终在场', sb.beats.every((s) => s.cast.some((c) => c.role === 'protagonist')), JSON.stringify(sb.beats.map((s) => s.cast)))
+    ok3('剧情节点不再含运镜字段 camera', sb.beats.every((s) => s.camera === undefined), JSON.stringify(sb.beats.map((s) => s.camera)))
 
-    const fb = normalizeStoryboard(
+    const fb = normalizePlot(
       { narration: '你蹲在便利店货架后翻找，罐头滚了一下。窗外有什么东西踩碎了玻璃。' },
       { minute: 10 * 60, weather: null, location: '便利店', protagonist: null },
     )
-    ok3('无分镜时从正文推导兜底', fb.shots.length === 2 && fb.shots.every((s) => s.caption.length > 0), JSON.stringify(fb.shots.map((s) => s.caption)))
-    ok3('兜底分镜枚举值全部合法', [fb, sb].flatMap((x) => x.shots).every((s) =>
+    ok3('无剧情节点时从正文推导兜底', fb.beats.length >= 2 && fb.beats.every((s) => s.caption.length > 0), JSON.stringify(fb.beats.map((s) => s.caption)))
+    ok3('兜底节点枚举值全部合法', fb.beats.every((s) =>
       ['street', 'corridor', 'room', 'rooftop', 'forest', 'station', 'store'].includes(s.setting) &&
       ['idle', 'walk', 'run', 'search', 'talk', 'hide', 'fight', 'rest'].includes(s.action) &&
-      ['wide', 'push-in', 'pan-left', 'pan-right'].includes(s.camera) &&
       Number.isFinite(s.durationMs) && s.durationMs >= 1800 && s.durationMs <= 5000))
-    ok3('兜底分镜的场景按正文推断为商店', fb.shots.every((s) => s.setting === 'store'), fb.shots[0].setting)
-    ok3('兜底分镜在白天为白天画面', fb.night === false)
+    ok3('兜底节点的场景按正文推断为商店', fb.beats.every((s) => s.setting === 'store'), fb.beats[0].setting)
+    ok3('兜底节点在白天为白天画面', fb.night === false)
 
-    const bad = normalizeStoryboard(
-      { narration: '一段正文。', pixelStoryboard: { shots: [{ caption: '非法分镜', setting: '太空站', action: '飞行', camera: '旋转', mood: '热血', focus: '黑洞', durationMs: 99999 }] } },
+    const bad = normalizePlot(
+      { narration: '一段正文。', pixelPlot: { beats: [{ caption: '非法节点', setting: '太空站', action: '飞行', mood: '热血', focus: '黑洞', durationMs: 99999 }] } },
       { minute: 12 * 60, weather: null, location: 'x', protagonist: null },
     )
-    ok3('分镜非法枚举回落到安全默认', bad.shots[0].setting === 'street' && bad.shots[0].action === 'idle' && bad.shots[0].durationMs <= 5000, JSON.stringify(bad.shots[0]))
-    ok3('分镜总时长不超过上限', bad.shots.reduce((s, x) => s + x.durationMs, 0) <= 7000, String(bad.shots.reduce((s, x) => s + x.durationMs, 0)))
+    ok3('剧情节点非法枚举回落到安全默认', bad.beats[0].setting === 'street' && bad.beats[0].action === 'idle' && bad.beats[0].durationMs <= 5000, JSON.stringify(bad.beats[0]))
+    ok3('剧情节点总时长不超过上限', bad.beats.reduce((s, x) => s + x.durationMs, 0) <= 8000, String(bad.beats.reduce((s, x) => s + x.durationMs, 0)))
 
     /* ---- 正文驱动的画面元素：物件 / 光源 / 人群 / 破损度 / 朝向 ---- */
     ok3('输出 schema 声明 props/crowd/light/damage/direction 字段', ['"props"', '"crowd"', '"light"', '"damage"', '"direction"'].every((k) => OUTPUT_SCHEMA.includes(k)))
-    const rich = normalizeStoryboard(
+    const rich = normalizePlot(
       {
         narration: '一段普通正文。',
-        pixelStoryboard: { shots: [{ caption: '画面元素', props: ['fire', '飞船', 'gun', 'fire'], crowd: 99, light: '探照灯', damage: '破碎', direction: 'up', durationMs: 3000 }] },
+        pixelPlot: { beats: [{ caption: '画面元素', props: ['fire', '飞船', 'gun', 'fire'], crowd: 99, light: '探照灯', damage: '破碎', direction: 'up', durationMs: 3000 }] },
       },
       { minute: 21 * 60, weather: null, location: '营地', protagonist: null, day: 1 },
     )
-    ok3('分镜 props 白名单过滤并去重', JSON.stringify(rich.shots[0].props) === '["fire","gun"]', JSON.stringify(rich.shots[0].props))
-    ok3('分镜 crowd 收口 0-8', rich.shots[0].crowd === 8, String(rich.shots[0].crowd))
-    ok3('分镜 light/damage/direction 非法回落', rich.shots[0].light === 'none' && rich.shots[0].damage === 'intact' && rich.shots[0].direction === 'right', JSON.stringify({ light: rich.shots[0].light, damage: rich.shots[0].damage, direction: rich.shots[0].direction }))
+    ok3('剧情节点 props 白名单过滤并去重', JSON.stringify(rich.beats[0].props) === '["fire","gun"]', JSON.stringify(rich.beats[0].props))
+    ok3('剧情节点 crowd 收口 0-8', rich.beats[0].crowd === 8, String(rich.beats[0].crowd))
+    ok3('剧情节点 light/damage/direction 非法回落', rich.beats[0].light === 'none' && rich.beats[0].damage === 'intact' && rich.beats[0].direction === 'right', JSON.stringify({ light: rich.beats[0].light, damage: rich.beats[0].damage, direction: rich.beats[0].direction }))
 
-    const fb2 = normalizeStoryboard(
+    const fb2 = normalizePlot(
       { narration: '你点起火堆取暖，旁边躺着一具尸体。手电在地上滚了半圈，尸群在街口涌动。' },
       { minute: 22 * 60, weather: null, location: '街口', protagonist: null, day: 20 },
     )
-    ok3('兜底分镜从正文提取物件（火堆/尸体/手电）', fb2.shots[0].props.includes('fire') && fb2.shots[0].props.includes('corpse') && fb2.shots[1].props.includes('flashlight'), JSON.stringify(fb2.shots.map((s) => s.props)))
-    ok3('兜底光源取自正文（火/手电）', fb2.shots[0].light === 'fire' && fb2.shots[1].light === 'flashlight', JSON.stringify(fb2.shots.map((s) => s.light)))
-    ok3('正文有尸群时画背景人群', fb2.shots[1].crowd >= 2, String(fb2.shots[1].crowd))
-    ok3('破损度随崩塌天数推进（第 20 天=废墟）', fb2.shots.every((s) => s.damage === 'ruined'), fb2.shots[0].damage)
+    ok3('兜底节点从正文提取物件（火堆/尸体/手电）', fb2.beats[0].props.includes('fire') && fb2.beats[0].props.includes('corpse') && fb2.beats[1].props.includes('flashlight'), JSON.stringify(fb2.beats.map((s) => s.props)))
+    ok3('兜底光源取自正文（火/手电）', fb2.beats[0].light === 'fire' && fb2.beats[1].light === 'flashlight', JSON.stringify(fb2.beats.map((s) => s.light)))
+    ok3('正文有尸群时画背景人群', fb2.beats[1].crowd >= 2, String(fb2.beats[1].crowd))
+    ok3('破损度随崩塌天数推进（第 20 天=废墟）', fb2.beats.every((s) => s.damage === 'ruined'), fb2.beats[0].damage)
   }
 
   report(rows)

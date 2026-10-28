@@ -723,14 +723,13 @@ export function mockRespond(userPrompt = '') {
         { name: '城南出租屋', quality: 2, note: '门锁还能用，离医院三站地' },
       ],
       narration: NARRATIONS[0],
-      // 像素分镜：验证「模型给出分镜 → 引擎归一化采纳」路径（自检覆盖）
-      pixelStoryboard: {
-        shots: [
+      // 像素剧情：验证「模型给出剧情节点 → 引擎归一化采纳」路径（自检覆盖）
+      pixelPlot: {
+        beats: [
           {
             caption: '急诊大厅的人群四散奔逃',
             setting: 'corridor',
             action: 'run',
-            camera: 'wide',
             mood: 'danger',
             focus: 'door',
             cast: [
@@ -747,7 +746,6 @@ export function mockRespond(userPrompt = '') {
             caption: '安全通道的绿灯还亮着',
             setting: 'corridor',
             action: 'walk',
-            camera: 'push-in',
             mood: 'tense',
             focus: 'door',
             cast: [{ name: '林默', role: 'protagonist' }],

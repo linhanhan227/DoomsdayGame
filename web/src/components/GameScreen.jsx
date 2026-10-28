@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import EndingScreen from './EndingScreen.jsx'
-import PixelStoryPlayer from './PixelStoryPlayer.jsx'
+import PixelPlotPlayer from './PixelPlotPlayer.jsx'
 
 const TARGET_SELF = '自己'
 const TARGET_HERE = '就地使用'
@@ -1010,10 +1010,10 @@ export default function GameScreen({
   const lastTurn = log.length ? log[log.length - 1].turn : null
   const visibleLog = lastTurn === null ? [] : log.filter((e) => e.turn === lastTurn)
 
-  // 回合（或任何新增日志的动作）变化时，按是否带分镜重置动画状态
+  // 回合（或任何新增日志的动作）变化时，按是否带剧情动画重置播放状态
   const sceneKey = `${game.id}:${game.turn}:${log.length}`
   useEffect(() => {
-    setScenePlaying(Boolean(game.pixelStoryboard) && !game.over)
+    setScenePlaying(Boolean(game.pixelPlot) && !game.over)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneKey])
 
@@ -1175,10 +1175,10 @@ export default function GameScreen({
 
       <div className="body">
         <div className="story">
-          {game.pixelStoryboard && !game.over && (
-            <PixelStoryPlayer
+          {game.pixelPlot && !game.over && (
+            <PixelPlotPlayer
               key={sceneKey}
-              storyboard={game.pixelStoryboard}
+              plot={game.pixelPlot}
               onChange={(s) => setScenePlaying(s === 'playing')}
             />
           )}

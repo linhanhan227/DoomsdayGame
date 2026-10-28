@@ -1,24 +1,30 @@
 /**
- * 像素分镜（Pixel Storyboard）· 数据层
+ * 像素剧情动画（Pixel Plot）· 数据层
  * ------------------------------------------------------------------
- * AI 每回合在剧情 JSON 里给出 pixelStoryboard（恰好 2 个分镜），前端把它
+ * AI 每回合在剧情 JSON 里给出 pixelPlot（2-4 个"剧情节点 beats"），前端把它
  * 绘制成 Canvas 像素剧情动画：先播动画，播完（或跳过）才显示选项。
  *
+ * 与旧版"分镜动画"的区别：
+ *   · 这里刻画的是**本回合的剧情节点**（情节先后、人物、物件、情绪、光源），
+ *     而不是导演式的镜头/焦点分镜；动画跟随正文情节推进，符合剧情；
+ *   · 因此不再有 camera（推近/平移）等运镜字段，画面只由剧情内容驱动；
+ *   · focus 仅作为"本节点画面重点物件"的可选强调，仍来自正文。
+ *
  * 职责边界：
- *   · 模型只"描述"画面：场景 / 动作 / 镜头 / 情绪 / 出场人物 / 可见物件 /
+ *   · 模型只"描述"画面：场景 / 动作 / 情绪 / 出场人物 / 可见物件 /
  *     光源 / 背景人群 / 环境破损度 / 主角朝向 / 时长——全部来自本回合正文；
  *   · 这里负责把模型输出**归一化**成可安全渲染的数据：白名单枚举、
  *     字数与时长截断、缺失字段按状态快照与叙事正文推断；
- *   · 模型没给分镜（旧存档、漏字段、离线通道）时，从叙事正文自动推导兜底分镜
- *     （含从正文关键词提取物件、光源、人群），保证"每回合先动画后选项"不中断。
+ *   · 模型没给节点（旧存档、漏字段、离线通道）时，从叙事正文自动推导兜底节点
+ *     （按情节把正文断成多个节点，各自提取物件、光源、人群），保证"每回合先
+ *     动画后选项"不中断。
  *
- * 渲染层（core/pixel-scene.js + components/PixelStoryPlayer.jsx）只绘制
+ * 渲染层（core/pixel-scene.js + components/PixelPlotPlayer.jsx）只绘制
  * 这里给出的数据，不执行模型返回的任何代码或地址。
  */
 
 const SETTINGS = ['street', 'corridor', 'room', 'rooftop', 'forest', 'station', 'store']
 const ACTIONS = ['idle', 'walk', 'run', 'search', 'talk', 'hide', 'fight', 'rest']
-const CAMERAS = ['wide', 'push-in', 'pan-left', 'pan-right']
 const MOODS = ['quiet', 'tense', 'danger', 'hope']
 const FOCUSES = ['none', 'door', 'window', 'car', 'supplies', 'fire', 'stairs']
 const ROLES = ['protagonist', 'ally', 'stranger', 'infected']
@@ -31,10 +37,12 @@ const PROPS = ['fire', 'corpse', 'car', 'barricade', 'gun', 'medkit', 'food', 'w
 const SHOT_MIN_MS = 1800
 const SHOT_MAX_MS = 5000
 const DEFAULT_SHOT_MS = 3000
-const TOTAL_MAX_MS = 7000
+const TOTAL_MAX_MS = 8000
 const CAST_MAX = 3
 const PROPS_MAX = 3
 const CROWD_MAX = 8
+const BEATS_MAX = 4
+const BEATS_MIN = 2
 
 function pickEnum(value, list, fallback) {
   const v = String(value === undefined || value === null ? '' : value)
@@ -95,15 +103,14 @@ function normalizeCast(rawCast, heroName) {
   return out
 }
 
-/** 单个分镜归一化：任何非法值都落到安全默认，绝不抛错 */
-function normalizeShot(raw, fallback) {
+/** 单个剧情节点归一化：任何非法值都落到安全默认，绝不抛错 */
+function normalizeBeat(raw, fallback) {
   const src = raw && typeof raw === 'object' ? raw : {}
   const fb = fallback || {}
   return {
     caption: clipText(src.caption, 26) || clipText(fb.caption, 26),
     setting: pickEnum(src.setting, SETTINGS, pickEnum(fb.setting, SETTINGS, 'street')),
     action: pickEnum(src.action, ACTIONS, pickEnum(fb.action, ACTIONS, 'idle')),
-    camera: pickEnum(src.camera, CAMERAS, pickEnum(fb.camera, CAMERAS, 'wide')),
     mood: pickEnum(src.mood, MOODS, pickEnum(fb.mood, MOODS, 'tense')),
     focus: pickEnum(src.focus, FOCUSES, pickEnum(fb.focus, FOCUSES, 'none')),
     cast: normalizeCast(src.cast, fb.heroName || ''),
@@ -116,19 +123,19 @@ function normalizeShot(raw, fallback) {
   }
 }
 
-/** 两幕总时长收口：超出上限时逐段削最长的一幕，兜底永不低于单幕下限 */
-function capTotalDuration(shots) {
-  const total = () => shots.reduce((s, x) => s + x.durationMs, 0)
+/** 多幕总时长收口：超出上限时逐段削最长的一段，兜底永不低于单幕下限 */
+function capTotalDuration(beats) {
+  const total = () => beats.reduce((s, x) => s + x.durationMs, 0)
   let guard = 40
   while (total() > TOTAL_MAX_MS && guard-- > 0) {
-    const longest = shots.reduce((a, b) => (b.durationMs > a.durationMs ? b : a))
+    const longest = beats.reduce((a, b) => (b.durationMs > a.durationMs ? b : a))
     if (longest.durationMs <= SHOT_MIN_MS + 200) break
     longest.durationMs = Math.max(SHOT_MIN_MS, longest.durationMs - 200)
   }
-  return shots
+  return beats
 }
 
-/* ---------------------------- 兜底推导（模型没给分镜时） ---------------------------- */
+/* ---------------------------- 兜底推导（模型没给节点时） ---------------------------- */
 
 /** 按句末标点切句（不用正则后行断言，兼容旧内核） */
 function splitSentences(text) {
@@ -143,6 +150,23 @@ function splitSentences(text) {
   }
   if (buf.trim()) out.push(buf.trim())
   return out.filter(Boolean)
+}
+
+/** 把正文句子尽可能均匀地切成 target 个连续节点（至少 2 个） */
+function groupSentences(sentences, target) {
+  const src = sentences.length ? sentences : ['你在末日中前行']
+  const groups = []
+  const per = Math.max(1, Math.ceil(src.length / target))
+  for (let i = 0; i < src.length; i += per) groups.push(src.slice(i, i + per))
+  // 节点过少时，把长节点再劈开，凑到 target 个
+  while (groups.length < target && groups.length < src.length) {
+    const last = groups.pop()
+    if (!last) break
+    const mid = Math.ceil(last.length / 2)
+    groups.push(last.slice(0, mid), last.slice(mid))
+  }
+  while (groups.length < 2) groups.push([src[0] || '你在末日中前行'])
+  return groups
 }
 
 const SETTING_HINTS = [
@@ -227,7 +251,7 @@ function lightOf(text, props) {
 
 /** 背景人群/尸群：正文提到成群的人或尸才给数量（确定性伪随机，避免每次重绘跳变） */
 function crowdOf(text) {
-  if (!/尸群|尸潮|人群|一群|成群|一群人|幸存者们| Cluster /i.test(text)) return 0
+  if (!/尸群|尸潮|人群|一群|成群|一群人|幸存者们/i.test(text)) return 0
   let h = 2166136261
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619) >>> 0
   return 2 + (h % 4)
@@ -246,48 +270,46 @@ function damageOf(day) {
   return 'ruined'
 }
 
-/** 从叙事正文推导两幕兜底分镜（前半句 → 第一幕，后半句 → 第二幕，各自提取物件/光源/人群） */
-function deriveShots(text, env, heroName) {
+/**
+ * 从叙事正文推导 2-4 个剧情节点（按情节先后，各自提取物件/光源/人群）。
+ * 这是"符合剧情"的关键：动画节点的内容直接来自本回合正文，而非导演分镜。
+ */
+function deriveBeats(text, env, heroName) {
   const sentences = splitSentences(text)
-  const mid = Math.max(1, Math.ceil(sentences.length / 2))
-  const firstHalf = sentences.slice(0, mid).join(' ') || '你在末日中前行'
-  const secondHalf = sentences.slice(mid).join(' ') || firstHalf
+  const target = Math.min(BEATS_MAX, Math.max(BEATS_MIN, Math.ceil(sentences.length / 1.5)))
+  const groups = groupSentences(sentences, target)
   const sample = sentences.join(' ')
   const base = {
     setting: settingOf(sample),
-    action: actionOf(sample),
-    mood: moodOf(sample),
-    focus: focusOf(sample),
     damage: env.damage,
   }
-  const shotOf = (part, caption, camera, durationMs) => {
+  return groups.map((seg, i) => {
+    const part = seg.join(' ') || '你在末日中前行'
     const props = propsOf(part)
     return {
-      caption: clipText(caption, 20) || '末日现场',
+      caption: clipText(seg[0] || part, 24) || '末日现场',
       ...base,
-      camera,
+      action: actionOf(part),
+      mood: moodOf(part),
+      focus: focusOf(part),
       cast: normalizeCast([], heroName),
       props,
       crowd: crowdOf(part),
       light: lightOf(part, props),
       direction: directionOf(part),
-      durationMs,
+      durationMs: 2200 + (i % 2) * 300,
     }
-  }
-  return [
-    shotOf(firstHalf, sentences[0] || '', 'wide', 3000),
-    shotOf(secondHalf, sentences[sentences.length - 1] || sentences[0] || '', 'push-in', 3200),
-  ]
+  })
 }
 
 /* ---------------------------- 对外入口 ---------------------------- */
 
 /**
- * 归一化一回合的像素分镜。
- * @param raw  模型原始回包（读 raw.pixelStoryboard；正文取 narration / narrative）
+ * 归一化一回合的像素剧情动画。
+ * @param raw  模型原始回包（读 raw.pixelPlot；兼容旧 raw.pixelStoryboard；正文取 narration / narrative）
  * @param state 引擎状态快照（昼夜 / 天气 / 地点 / 主角名 / 崩塌天数以引擎为准）
  */
-export function normalizeStoryboard(raw, state = {}) {
+export function normalizePlot(raw, state = {}) {
   const minute = Number(state.minute)
   const night = Number.isFinite(minute) ? nightOf(minute) : true
   const weather = WEATHERS.includes(state.weather?.kind) ? state.weather.kind : 'overcast'
@@ -297,17 +319,28 @@ export function normalizeStoryboard(raw, state = {}) {
   const text = String((raw && (raw.narration || raw.narrative)) || '')
   const env = { night, weather, location, damage }
 
-  const derived = deriveShots(text, env, heroName)
-  const rawShots = raw && raw.pixelStoryboard && Array.isArray(raw.pixelStoryboard.shots)
-    ? raw.pixelStoryboard.shots.filter(Boolean)
-    : []
+  const derived = deriveBeats(text, env, heroName)
 
-  const shots = capTotalDuration([
-    normalizeShot(rawShots[0], { ...derived[0], heroName }),
-    normalizeShot(rawShots[1] || derived[1], { ...derived[1], heroName }),
-  ])
+  // 模型给出的剧情节点（beats），兼容旧存档的 shots
+  const rawBeats = raw && raw.pixelPlot && Array.isArray(raw.pixelPlot.beats)
+    ? raw.pixelPlot.beats.filter(Boolean)
+    : raw && raw.pixelStoryboard && Array.isArray(raw.pixelStoryboard.beats)
+      ? raw.pixelStoryboard.beats.filter(Boolean)
+      : raw && raw.pixelStoryboard && Array.isArray(raw.pixelStoryboard.shots)
+        ? raw.pixelStoryboard.shots.filter(Boolean)
+        : []
 
-  return { version: 1, ...env, shots }
+  const count = rawBeats.length
+    ? Math.min(BEATS_MAX, Math.max(BEATS_MIN, rawBeats.length))
+    : derived.length
+  const merged = []
+  for (let i = 0; i < count; i += 1) {
+    const src = rawBeats[i] || derived[i % derived.length]
+    const fallback = { ...(derived[i % derived.length] || derived[0]), heroName }
+    merged.push(normalizeBeat(src, fallback))
+  }
+
+  return { version: 1, ...env, beats: capTotalDuration(merged.slice(0, BEATS_MAX)) }
 }
 
 /** 昼夜判定（与引擎 prompt.js 的 DUSK/NIGHT 阈值一致，独立实现避免循环依赖） */

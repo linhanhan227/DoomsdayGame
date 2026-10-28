@@ -1191,7 +1191,7 @@ label.db-file-label,
 }
 
 /* ---------- 像素剧情动画 ---------- */
-/* 每回合先播一段 Canvas 像素动画（分镜由 AI 给出、引擎归一化），播完才显示选项 */
+/* 每回合先播一段 Canvas 像素剧情动画（剧情节点由 AI 给出或正文推导、引擎归一化），播完才显示选项 */
 .pixel-player {
   margin: 0 0 20px;
   border: 1px solid var(--line-soft);

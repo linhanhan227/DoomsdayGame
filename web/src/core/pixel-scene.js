@@ -4,7 +4,6 @@ const HEIGHT = 270
 const VALUES = {
   setting: ['street', 'corridor', 'room', 'rooftop', 'forest', 'station', 'store'],
   action: ['idle', 'walk', 'run', 'search', 'talk', 'hide', 'fight', 'rest'],
-  camera: ['wide', 'push-in', 'pan-left', 'pan-right'],
   mood: ['quiet', 'tense', 'danger', 'hope'],
   focus: ['none', 'door', 'window', 'car', 'supplies', 'fire', 'stairs'],
   weather: ['clear', 'cloudy', 'overcast', 'fog', 'rain', 'storm', 'thunder', 'snow', 'blizzard'],
@@ -544,7 +543,7 @@ function foreground(ctx, s, p) {
 }
 
 /** Draw one 480×270 composition, letterboxed to ctx.canvas; no retained state or I/O. */
-export function drawPixelScene(ctx, scene, { time = 0, progress = 0, reducedMotion = false } = {}) {
+export function drawPixelPlot(ctx, scene, { time = 0, progress = 0, reducedMotion = false } = {}) {
   if (!ctx || !ctx.canvas) return
   const width = finite(ctx.canvas.width), height = finite(ctx.canvas.height)
   if (width <= 0 || height <= 0) return
@@ -552,8 +551,6 @@ export function drawPixelScene(ctx, scene, { time = 0, progress = 0, reducedMoti
   const p = { ...PALETTES[s.night ? 'night' : 'day'], accent: { quiet: '#90a6a5', tense: '#b09b73', danger: '#b17c6b', hope: '#a6b99a' }[s.mood] }
   const t = reducedMotion ? 0 : Math.max(0, finite(time)) % 86400
   const frameProgress = reducedMotion ? 0.5 : Math.max(0, Math.min(1, finite(progress)))
-  const zoom = !reducedMotion && s.camera === 'push-in' ? 1 + frameProgress * 0.065 : 1
-  const pan = !reducedMotion && s.camera.startsWith('pan-') ? Math.round((frameProgress - 0.5) * 18) * (s.camera === 'pan-left' ? 1 : -1) : 0
   const scale = Math.min(width / WIDTH, height / HEIGHT)
   ctx.save()
   try {
@@ -564,9 +561,8 @@ export function drawPixelScene(ctx, scene, { time = 0, progress = 0, reducedMoti
     rect(ctx, p.ink, 0, 0, width, height)
     ctx.translate(Math.round((width - WIDTH * scale) / 2), Math.round((height - HEIGHT * scale) / 2)); ctx.scale(scale, scale)
     ctx.beginPath(); ctx.rect(0, 0, WIDTH, HEIGHT); ctx.clip()
-    ctx.translate(WIDTH / 2, HEIGHT / 2); ctx.scale(zoom, zoom); ctx.translate(-WIDTH / 2, -HEIGHT / 2)
-    ctx.save(); ctx.translate(Math.round(pan * 0.35), 0); backdrop(ctx, s, p, seed, t); ctx.restore()
-    ctx.translate(pan, 0)
+    // 剧情动画不再做导演式运镜（推近/平移）：画面只由剧情内容驱动，保持平实、稳定、可读。
+    backdrop(ctx, s, p, seed, t)
     environment(ctx, s, p, seed)
     damageOverlay(ctx, s, p, seed)
     focusObject(ctx, s, p, t)

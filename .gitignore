@@ -15,3 +15,15 @@ vite.config.js.timestamp-*
 # WorkBuddy 内部状态：本地代理记忆与部署标记，不入库
 .workbuddy/
 .wbapp_*.genie
+
+# ---- 安卓 / Capacitor（原生壳）----
+android/.gradle/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+# 自签名发布密钥，切勿入库
+*.keystore
+keystore.properties
+release-key.*
+
+# ---- 桌面端 / Electron（electron-builder 产物）----
+dist-electron/

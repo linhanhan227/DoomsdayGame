@@ -1,0 +1,9 @@
+{
+  "appId": "com.doom.survival",
+  "appName": "末日生存",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {}
+}

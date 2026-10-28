@@ -3,7 +3,8 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "AI 驱动的末日丧尸生存文字游戏 —— 前端纯静态（无数据库后端），SQLite(WASM) 存档",
+  "description": "AI 驱动的末日丧尸生存文字游戏 —— 前端纯静态（无数据库后端），SQLite(WASM) 存档；可打包为安卓 APK 与桌面端",
+  "main": "electron/main.cjs",
   "engines": {
     "node": ">=18"
   },
@@ -18,7 +19,35 @@
     "test:llm": "node scripts/llm-response-test.mjs",
     "check:wasm": "node scripts/check-wasm.mjs",
     "build:bonto": "npm run build:host && node scripts/build-bonto.mjs",
-    "deploy:bonto": "node scripts/deploy-bonto.mjs"
+    "deploy:bonto": "node scripts/deploy-bonto.mjs",
+    "cap:sync": "cap sync android",
+    "android:apk": "npm run build && cap sync android && cd android && ./gradlew assembleRelease --no-daemon",
+    "electron:dev": "electron electron/main.cjs",
+    "electron:build": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.doom.survival",
+    "productName": "末日生存",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist-electron"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -26,7 +55,13 @@
     "sql.js": "^1.14.2"
   },
   "devDependencies": {
+    "@capacitor/android": "^6.2.2",
+    "@capacitor/cli": "^6.2.2",
+    "@capacitor/core": "^6.2.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
+    "typescript": "^7.0.2",
     "vite": "^5.4.11"
   }
 }
